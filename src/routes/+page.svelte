@@ -37,16 +37,15 @@
 			} else {
 				model = data.models[0].id;
 			}
-			const res = await fetch(`${base}/conversation`, {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-				},
-				body: JSON.stringify({
-					model,
-					preprompt: $settings.customPrompts[$settings.activeModel],
-				}),
-			});
+            const res = await fetch(`${base}/conversation`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    model,
+                }),
+            });
 
 			if (!res.ok) {
 				const errorMessage = (await res.json()).message || ERROR_MESSAGES.default;
