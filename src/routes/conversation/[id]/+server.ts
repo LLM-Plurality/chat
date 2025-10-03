@@ -442,6 +442,23 @@ export async function POST({ request, locals, params, getClientAddress }) {
 			let hasError = false;
 			const initialMessageContent = messageToWriteTo.content;
 
+			// Get current persona definition (may have been updated since conversation creation)
+			const userSettings = await collections.settings.findOne(authCondition(locals));
+			const personaId = conv.personaId ?? userSettings?.activePersona ?? "default-neutral";
+			const currentPersona = userSettings?.personas?.find((p) => p.id === personaId);
+
+			// Use current persona prompt (reflects any edits)
+			const preprompt = currentPersona?.prompt ?? conv.preprompt ?? "";
+
+			// Update conversation's preprompt to reflect current persona
+			await collections.conversations.updateOne(
+				{ _id: conv._id },
+				{ $set: { preprompt, updatedAt: new Date() } }
+			);
+
+			// Update conv object with current preprompt
+			conv.preprompt = preprompt;
+
 			try {
 				const ctx: TextGenerationContext = {
 					model,
@@ -454,11 +471,7 @@ export async function POST({ request, locals, params, getClientAddress }) {
 					ip: getClientAddress(),
 					username: locals.user?.username,
 					// Force-enable multimodal if user settings say so for this model
-					forceMultimodal: Boolean(
-						(await collections.settings.findOne(authCondition(locals)))?.multimodalOverrides?.[
-							model.id
-						]
-					),
+					forceMultimodal: Boolean(userSettings?.multimodalOverrides?.[model.id]),
 				};
 				// run the text generation and send updates to the client
 				for await (const event of textGeneration(ctx)) await update(event);
@@ -542,9 +555,7 @@ export async function PATCH({ request, locals, params }) {
 
 	// Only include defined values in the update, with title sanitized
 	const updateValues = {
-		...(values.title !== undefined && {
-			title: values.title.replace(/<\/?think>/gi, "").trim(),
-		}),
+		...(values.title !== undefined && { title: values.title.replace(/<\/?think>/gi, "").trim() }),
 		...(values.model !== undefined && { model: values.model }),
 	};
 
