@@ -5,6 +5,7 @@
 	import IconOmni from "$lib/components/icons/IconOmni.svelte";
 	import CarbonCaretDown from "~icons/carbon/caret-down";
 	import CarbonDirectionRight from "~icons/carbon/direction-right-01";
+	import CarbonModel from "~icons/carbon/model";
 
 	import ChatInput from "./ChatInput.svelte";
 	import StopGeneratingBtn from "../StopGeneratingBtn.svelte";
@@ -29,6 +30,7 @@
 	import { routerExamples } from "$lib/constants/routerExamples";
 	import type { RouterFollowUp, RouterExample } from "$lib/constants/routerExamples";
 	import { shareModal } from "$lib/stores/shareModal";
+	import PersonaSelector from "$lib/components/PersonaSelector.svelte";
 
 	import { fly } from "svelte/transition";
 	import { cubicInOut } from "svelte/easing";
@@ -551,23 +553,24 @@
 			</form>
 			<div
 				class={{
-					"mt-1.5 flex h-5 items-center self-stretch whitespace-nowrap px-0.5 text-xs text-gray-400/90 max-md:mb-2 max-sm:gap-2": true,
+					"mt-3 flex items-center justify-end gap-2 self-stretch whitespace-nowrap px-0.5 pt-2 text-xs text-gray-400/90 max-md:mb-2 max-sm:gap-2": true,
 					"max-sm:hidden": focused && isVirtualKeyboard(),
 				}}
 			>
+				<PersonaSelector />
 				{#if models.find((m) => m.id === currentModel.id)}
 					{#if !currentModel.isRouter || !loading}
 						<a
 							href="{base}/settings/{currentModel.id}"
-							class="inline-flex items-center gap-1 hover:underline"
+							class="flex items-center gap-1.5 rounded-lg border border-gray-300 bg-gray-100 px-4 py-1.5 text-sm text-gray-700 shadow-sm hover:bg-gray-200 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
 						>
+							<CarbonModel class="text-xs" />
 							{#if currentModel.isRouter}
-								<IconOmni />
-								{currentModel.displayName}
+								<IconOmni classNames="text-xs" />
+								<span class="max-w-[250px] truncate">{currentModel.displayName}</span>
 							{:else}
-								Model: {currentModel.displayName}
+								<span class="max-w-[250px] truncate">{currentModel.displayName}</span>
 							{/if}
-							<CarbonCaretDown class="-ml-0.5 text-xxs" />
 						</a>
 					{:else if showRouterDetails && streamingRouterMetadata}
 						<div
@@ -593,15 +596,12 @@
 							<IconOmni classNames="text-xs animate-pulse mr-1" /> Routing
 						</div>
 					{/if}
-				{:else}
-					<span class="inline-flex items-center line-through dark:border-gray-700">
-						{currentModel.id}
-					</span>
-				{/if}
-				{#if !messages.length}
-					<span>Generated content may be inaccurate or false.</span>
-				{/if}
-			</div>
+			{:else}
+				<span class="inline-flex items-center line-through dark:border-gray-700">
+					{currentModel.id}
+				</span>
+			{/if}
+		</div>
 		</div>
 	</div>
 </div>
