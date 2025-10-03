@@ -20,21 +20,6 @@
 
 	type RouterProvider = { provider: string } & Record<string, unknown>;
 
-	$effect(() => {
-		if ($settings.customPrompts[page.params.model] === undefined) {
-			$settings.customPrompts = {
-				...$settings.customPrompts,
-				[page.params.model]:
-					page.data.models.find((el: BackendModel) => el.id === page.params.model)?.preprompt || "",
-			};
-		}
-	});
-
-	let hasCustomPreprompt = $derived(
-		$settings.customPrompts[page.params.model] !==
-			page.data.models.find((el: BackendModel) => el.id === page.params.model)?.preprompt
-	);
-
 	let model = $derived(page.data.models.find((el: BackendModel) => el.id === page.params.model));
 	let providerList: RouterProvider[] = $derived((model?.providers ?? []) as RouterProvider[]);
 
@@ -173,27 +158,6 @@
 				depending on your request.
 			</p>
 		{/if}
-		<div class="flex w-full flex-row content-between">
-			<h3 class="mb-1 text-[15px] font-semibold text-gray-800 dark:text-gray-200">System Prompt</h3>
-			{#if hasCustomPreprompt}
-				<button
-					class="ml-auto text-xs underline decoration-gray-300 hover:decoration-gray-700 dark:decoration-gray-700 dark:hover:decoration-gray-400"
-					onclick={(e) => {
-						e.stopPropagation();
-						$settings.customPrompts[page.params.model] = model.preprompt;
-					}}
-				>
-					Reset
-				</button>
-			{/if}
-		</div>
-
-		<textarea
-			aria-label="Custom system prompt"
-			rows="8"
-			class="w-full resize-none rounded-md border border-gray-200 bg-gray-50 p-2 text-[13px] dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
-			bind:value={$settings.customPrompts[page.params.model]}
-		></textarea>
 		<!-- Capabilities -->
 		<div
 			class="mt-3 rounded-xl border border-gray-200 bg-white px-3 shadow-sm dark:border-gray-700 dark:bg-gray-800"
