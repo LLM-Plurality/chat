@@ -1,6 +1,8 @@
 import { defaultModel } from "$lib/server/models";
 import type { Timestamps } from "./Timestamps";
 import type { User } from "./User";
+import type { Persona } from "./Persona";
+import { DEFAULT_PERSONAS } from "$lib/server/defaultPersonas";
 
 export interface Settings extends Timestamps {
 	userId?: User["_id"];
@@ -11,8 +13,9 @@ export interface Settings extends Timestamps {
 	welcomeModalSeenAt?: Date | null;
 	activeModel: string;
 
-	// model name and system prompts
-	customPrompts?: Record<string, string>;
+	// Active persona and user's custom personas
+	activePersona: string; // Persona ID
+	personas: Persona[]; // User's custom personas + edited defaults
 
 	/**
 	 * Per‑model overrides to enable multimodal (image) support
@@ -36,7 +39,12 @@ export type SettingsEditable = Omit<Settings, "welcomeModalSeenAt" | "createdAt"
 export const DEFAULT_SETTINGS = {
 	shareConversationsWithModelAuthors: true,
 	activeModel: defaultModel.id,
-	customPrompts: {},
+	activePersona: "default", // Default persona
+	personas: DEFAULT_PERSONAS.map((p) => ({
+		...p,
+		createdAt: new Date(),
+		updatedAt: new Date(),
+	})),
 	multimodalOverrides: {},
 	hidePromptExamples: {},
 	disableStream: false,
