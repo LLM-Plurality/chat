@@ -9,6 +9,7 @@ import trimMessageUpdates from "./06-trim-message-updates";
 import updateFeaturedToReview from "./08-update-featured-to-review";
 import deleteEmptyConversations from "./09-delete-empty-conversations";
 import updateReportsAssistantId from "./10-update-reports-assistantid";
+import addPersonas from "./11-add-personas";
 
 export interface Migration {
 	_id: ObjectId;
@@ -29,4 +30,5 @@ export const migrations: Migration[] = [
 	updateFeaturedToReview,
 	deleteEmptyConversations,
 	updateReportsAssistantId,
+	addPersonas,
 ];
