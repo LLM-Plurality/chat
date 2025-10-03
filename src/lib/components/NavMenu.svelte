@@ -27,9 +27,11 @@
 	import { browser } from "$app/environment";
 	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
 	import { useAPIClient, handleResponse } from "$lib/APIClient";
+	import { useSettingsStore } from "$lib/stores/settings";
 
 	const publicConfig = usePublicConfig();
 	const client = useAPIClient();
+	const settings = useSettingsStore();
 
 	interface Props {
 		conversations: ConvSidebar[];
@@ -72,6 +74,7 @@
 	});
 
 	const nModels: number = page.data.models.filter((el: Model) => !el.unlisted).length;
+	let nPersonas = $derived($settings.personas.length);
 
 	async function handleVisible() {
 		p++;
@@ -184,6 +187,17 @@
 		<span
 			class="ml-auto rounded-md bg-gray-500/5 px-1.5 py-0.5 text-xs text-gray-400 dark:bg-gray-500/20 dark:text-gray-400"
 			>{nModels}</span
+		>
+	</a>
+
+	<a
+		href="{base}/personas"
+		class="flex h-9 flex-none items-center gap-1.5 rounded-lg pl-2.5 pr-2 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
+	>
+		Personas
+		<span
+			class="ml-auto rounded-md bg-gray-500/5 px-1.5 py-0.5 text-xs text-gray-400 dark:bg-gray-500/20 dark:text-gray-400"
+			>{nPersonas}</span
 		>
 	</a>
 
