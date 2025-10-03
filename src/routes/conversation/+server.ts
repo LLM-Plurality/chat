@@ -75,8 +75,13 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		error(400, "Can't start a conversation with an unlisted model");
 	}
 
-	// use provided preprompt or model preprompt
-	values.preprompt ??= model?.preprompt ?? "";
+	// Get user settings to retrieve active persona
+	const userSettings = await collections.settings.findOne(authCondition(locals));
+	const activePersonaId = userSettings?.activePersona ?? "default-neutral";
+	const activePersona = userSettings?.personas?.find((p) => p.id === activePersonaId);
+
+	// Use persona prompt as preprompt, fall back to model preprompt or provided preprompt
+	values.preprompt = activePersona?.prompt ?? values.preprompt ?? model?.preprompt ?? "";
 
 	if (messages && messages.length > 0 && messages[0].from === "system") {
 		messages[0].content = values.preprompt;
@@ -90,6 +95,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		messages,
 		model: values.model,
 		preprompt: values.preprompt,
+		personaId: activePersonaId, // Store persona reference
 		createdAt: new Date(),
 		updatedAt: new Date(),
 		userAgent: request.headers.get("User-Agent") ?? undefined,
