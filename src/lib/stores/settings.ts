@@ -5,12 +5,15 @@ import { UrlDependency } from "$lib/types/UrlDependency";
 import { getContext, setContext } from "svelte";
 import { type Writable, writable, get } from "svelte/store";
 
+import type { Persona } from "$lib/types/Persona";
+
 type SettingsStore = {
 	shareConversationsWithModelAuthors: boolean;
 	welcomeModalSeen: boolean;
 	welcomeModalSeenAt: Date | null;
 	activeModel: string;
-	customPrompts: Record<string, string>;
+	activePersona: string;
+	personas: Persona[];
 	multimodalOverrides: Record<string, boolean>;
 	recentlySaved: boolean;
 	disableStream: boolean;
