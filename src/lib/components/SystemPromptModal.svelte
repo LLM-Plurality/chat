@@ -12,14 +12,6 @@
 	let isOpen = $state(false);
 </script>
 
-<button
-	type="button"
-	class="mx-auto flex items-center gap-1.5 rounded-full border border-gray-100 bg-gray-50 px-3 py-1 text-xs text-gray-500 hover:bg-gray-100 dark:border-gray-800 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700"
-	onclick={() => (isOpen = !isOpen)}
-	onkeydown={(e) => e.key === "Enter" && (isOpen = !isOpen)}
->
-	<CarbonBlockchain class="text-xxs" /> Using Custom System Prompt
-</button>
 
 {#if isOpen}
 	<Modal onclose={() => (isOpen = false)} width="w-full !max-w-xl">
