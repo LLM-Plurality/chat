@@ -6,10 +6,8 @@
 	import { useSettingsStore } from "$lib/stores/settings";
 	import IconOmni from "$lib/components/icons/IconOmni.svelte";
 	import CarbonClose from "~icons/carbon/close";
-	import CarbonTextLongParagraph from "~icons/carbon/text-long-paragraph";
 	import CarbonChevronLeft from "~icons/carbon/chevron-left";
 	import CarbonView from "~icons/carbon/view";
-	import IconGear from "~icons/bi/gear-fill";
 
 	import type { LayoutData } from "../$types";
 	import { browser } from "$app/environment";
@@ -93,52 +91,82 @@
 	let modelFilter = $state("");
 	const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ");
 	let queryTokens = $derived(normalize(modelFilter).trim().split(/\s+/).filter(Boolean));
+
+	// Determine active tab based on current route
+	let activeTab = $derived.by(() => {
+		if (page.url.pathname.includes("/personas")) return "personas";
+		if (page.url.pathname.includes("/application")) return "application";
+		return "models";
+	});
 </script>
 
 <div
 	class="mx-auto grid h-full w-full max-w-[1400px] grid-cols-1 grid-rows-[auto,1fr] content-start gap-x-6 overflow-hidden p-4 text-gray-800 dark:text-gray-300 md:grid-cols-3 md:grid-rows-[auto,1fr] md:p-4"
 >
-	<div class="col-span-1 mb-3 flex items-center justify-between md:col-span-3 md:mb-4">
-		{#if showContent && browser}
+	<div class="col-span-1 mb-3 flex flex-col gap-3 md:col-span-3 md:mb-4">
+		<div class="flex items-center justify-between">
+			{#if showContent && browser}
+				<button
+					class="btn rounded-lg md:hidden"
+					aria-label="Back to menu"
+					onclick={() => {
+						showContent = false;
+						goto(`${base}/settings`);
+					}}
+				>
+					<CarbonChevronLeft
+						class="text-xl text-gray-900 hover:text-black dark:text-gray-200 dark:hover:text-white"
+					/>
+				</button>
+			{/if}
+			<h2 class=" left-0 right-0 mx-auto w-fit text-center text-xl font-bold md:hidden">Settings</h2>
 			<button
-				class="btn rounded-lg md:hidden"
-				aria-label="Back to menu"
+				class="btn rounded-lg"
+				aria-label="Close settings"
 				onclick={() => {
-					showContent = false;
-					goto(`${base}/settings`);
+					goto(previousPage);
 				}}
 			>
-				<CarbonChevronLeft
+				<CarbonClose
 					class="text-xl text-gray-900 hover:text-black dark:text-gray-200 dark:hover:text-white"
 				/>
 			</button>
-		{/if}
-		<h2 class=" left-0 right-0 mx-auto w-fit text-center text-xl font-bold md:hidden">Settings</h2>
-		<button
-			class="btn rounded-lg"
-			aria-label="Close settings"
-			onclick={() => {
-				goto(previousPage);
-			}}
-		>
-			<CarbonClose
-				class="text-xl text-gray-900 hover:text-black dark:text-gray-200 dark:hover:text-white"
-			/>
-		</button>
+		</div>
+		
+		<!-- Tab Navigation -->
+		<div class="flex gap-2 border-b border-gray-200 dark:border-gray-700 max-md:hidden">
+			<button
+				class="px-4 py-2 text-sm font-medium border-b-2 transition-colors {activeTab === 'models'
+					? 'border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400'
+					: 'border-transparent text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'}"
+				onclick={() => goto(`${base}/settings/${data.models[0]?.id ?? ''}`)}
+			>
+				Models
+			</button>
+			<button
+				class="px-4 py-2 text-sm font-medium border-b-2 transition-colors {activeTab === 'personas'
+					? 'border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400'
+					: 'border-transparent text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'}"
+				onclick={() => goto(`${base}/settings/personas/${$settings.activePersona || $settings.personas[0]?.id || ''}`)}
+			>
+				Personas
+			</button>
+			<button
+				class="px-4 py-2 text-sm font-medium border-b-2 transition-colors {activeTab === 'application'
+					? 'border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400'
+					: 'border-transparent text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'}"
+				onclick={() => goto(`${base}/settings/application`)}
+			>
+				Settings
+			</button>
+		</div>
 	</div>
-	{#if !(showContent && browser && !isDesktop(window))}
+	{#if !(showContent && browser && !isDesktop(window)) && activeTab === 'models'}
 		<div
 			class="scrollbar-custom col-span-1 flex flex-col overflow-y-auto whitespace-nowrap rounded-r-xl bg-gradient-to-l from-gray-50 to-10% dark:from-gray-700/40 max-md:-mx-4 max-md:h-full md:pr-6"
 			class:max-md:hidden={showContent && browser}
 			bind:this={navContainer}
 		>
-			<!-- Section Headers -->
-			<h3
-				class="px-3 pb-1 pt-2 text-xs font-semibold tracking-wide text-gray-600 dark:text-gray-400 md:text-left"
-			>
-				Models
-			</h3>
-
 			<!-- Filter input -->
 			<div class="px-2 py-2">
 				<input
@@ -184,11 +212,6 @@
 						</span>
 					{/if}
 
-					{#if $settings.customPrompts?.[model.id]}
-						<CarbonTextLongParagraph
-							class="size-6 rounded-md border border-gray-300 p-1 text-gray-800 dark:border-gray-600 dark:text-gray-200"
-						/>
-					{/if}
 					{#if model.id === $settings.activeModel}
 						<div
 							class="flex h-[21px] items-center rounded-md bg-black/90 px-2 text-[11px] font-semibold leading-none text-white dark:bg-white dark:text-black"
@@ -198,24 +221,11 @@
 					{/if}
 				</button>
 			{/each}
-
-			<button
-				type="button"
-				onclick={() => goto(`${base}/settings/application`)}
-				class="group sticky bottom-0 mt-1 flex h-9 w-full flex-none items-center gap-1 rounded-lg px-3 text-[13px] text-gray-600 dark:text-gray-300 max-md:order-first md:rounded-xl md:px-3 {page
-					.url.pathname === `${base}/settings/application`
-					? '!bg-gray-100 !text-gray-800 dark:!bg-gray-700 dark:!text-gray-200'
-					: 'bg-white dark:bg-gray-800'}"
-				aria-label="Configure application settings"
-			>
-				<IconGear class="mr-0.5 text-xxs" />
-				Application Settings
-			</button>
 		</div>
 	{/if}
 	{#if showContent}
 		<div
-			class="scrollbar-custom col-span-1 w-full overflow-y-auto overflow-x-clip px-1 md:col-span-2 md:row-span-2"
+			class="scrollbar-custom col-span-1 w-full overflow-y-auto overflow-x-clip px-1 {activeTab === 'models' ? 'md:col-span-2' : 'md:col-span-3'} md:row-span-2"
 			class:max-md:hidden={!showContent && browser}
 		>
 			{@render children?.()}
