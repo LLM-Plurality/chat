@@ -7,6 +7,17 @@ import { models, validateModel } from "$lib/server/models";
 import { DEFAULT_SETTINGS, type SettingsEditable } from "$lib/types/Settings";
 import { z } from "zod";
 
+const personaSchema = z.object({
+	id: z.string().min(1),
+	name: z.string().min(1).max(100),
+	occupation: z.string().max(200).default(""),
+	stance: z.string().max(200).default(""),
+	prompt: z.string().max(10000).default(""),
+	isDefault: z.boolean(),
+	createdAt: z.coerce.date(),
+	updatedAt: z.coerce.date(),
+});
+
 export const userGroup = new Elysia()
 	.use(authPlugin)
 	.get("/login", () => {
@@ -63,6 +74,8 @@ export const userGroup = new Elysia()
 					welcomeModalSeenAt: settings?.welcomeModalSeenAt ?? null,
 
 					activeModel: settings?.activeModel ?? DEFAULT_SETTINGS.activeModel,
+					activePersona: settings?.activePersona ?? DEFAULT_SETTINGS.activePersona,
+					personas: settings?.personas ?? DEFAULT_SETTINGS.personas,
 					disableStream: settings?.disableStream ?? DEFAULT_SETTINGS.disableStream,
 					directPaste: settings?.directPaste ?? DEFAULT_SETTINGS.directPaste,
 					hidePromptExamples: settings?.hidePromptExamples ?? DEFAULT_SETTINGS.hidePromptExamples,
@@ -70,7 +83,6 @@ export const userGroup = new Elysia()
 						settings?.shareConversationsWithModelAuthors ??
 						DEFAULT_SETTINGS.shareConversationsWithModelAuthors,
 
-					customPrompts: settings?.customPrompts ?? {},
 					multimodalOverrides: settings?.multimodalOverrides ?? {},
 				};
 			})
@@ -84,7 +96,8 @@ export const userGroup = new Elysia()
 							.default(DEFAULT_SETTINGS.shareConversationsWithModelAuthors),
 						welcomeModalSeen: z.boolean().optional(),
 						activeModel: z.string().default(DEFAULT_SETTINGS.activeModel),
-						customPrompts: z.record(z.string()).default({}),
+						activePersona: z.string().default(DEFAULT_SETTINGS.activePersona),
+						personas: z.array(personaSchema).min(1).default(DEFAULT_SETTINGS.personas),
 						multimodalOverrides: z.record(z.boolean()).default({}),
 						disableStream: z.boolean().default(false),
 						directPaste: z.boolean().default(false),
