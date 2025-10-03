@@ -31,7 +31,6 @@
 				},
 				body: JSON.stringify({
 					model: modelId,
-					preprompt: $settings.customPrompts[modelId],
 				}),
 			});
 
