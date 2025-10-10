@@ -19,6 +19,7 @@ export async function GET({ locals, params }) {
 				title: conv.title,
 				updatedAt: conv.updatedAt,
 				modelId: conv.model,
+				personaId: conv.personaId,
 				messages: conv.messages.map((message) => ({
 					content: message.content,
 					from: message.from,
@@ -29,6 +30,7 @@ export async function GET({ locals, params }) {
 					files: message.files,
 					updates: message.updates,
 					reasoning: message.reasoning,
+					personaResponses: message.personaResponses,
 				})),
 			};
 			return Response.json(res);

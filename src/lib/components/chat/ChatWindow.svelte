@@ -17,8 +17,6 @@
 	import { base } from "$app/paths";
 	import ContinueBtn from "../ContinueBtn.svelte";
 	import ChatMessage from "./ChatMessage.svelte";
-	import ScrollToBottomBtn from "../ScrollToBottomBtn.svelte";
-	import ScrollToPreviousBtn from "../ScrollToPreviousBtn.svelte";
 	import { browser } from "$app/environment";
 	import { snapScrollToBottom } from "$lib/actions/snapScrollToBottom";
 	import SystemPromptModal from "../SystemPromptModal.svelte";
@@ -47,6 +45,7 @@
 		currentModel: Model;
 		models: Model[];
 		preprompt?: string | undefined;
+		personaId?: string;
 		files?: File[];
 		onmessage?: (content: string) => void;
 		onstop?: () => void;
@@ -64,6 +63,7 @@
 		currentModel,
 		models,
 		preprompt = undefined,
+		personaId,
 		files = $bindable([]),
 		onmessage,
 		onstop,
@@ -73,6 +73,13 @@
 	}: Props = $props();
 
 	let isReadOnly = $derived(!models.some((model) => model.id === currentModel.id));
+
+	// Get persona information for single-persona mode
+	let userSettings = useSettingsStore();
+	let persona = $derived.by(() => {
+		if (!personaId) return undefined;
+		return $userSettings.personas?.find((p) => p.id === personaId);
+	});
 
 	let message: string = $state("");
 	let shareModalOpen = $state(false);
@@ -356,6 +363,9 @@
 							isAuthor={!shared}
 							readOnly={isReadOnly}
 							isLast={idx === messages.length - 1}
+							personaName={message.from === "assistant" && !message.personaResponses ? persona?.name : undefined}
+							personaOccupation={message.from === "assistant" && !message.personaResponses ? persona?.occupation : undefined}
+							personaStance={message.from === "assistant" && !message.personaResponses ? persona?.stance : undefined}
 							bind:editMsdgId
 							onretry={(payload) => onretry?.(payload)}
 							onshowAlternateMsg={(payload) => onshowAlternateMsg?.(payload)}
@@ -390,18 +400,14 @@
 				/>
 			{/if}
 		</div>
-
-		<ScrollToPreviousBtn class="fixed bottom-48 right-4 lg:right-10" scrollNode={chatContainer} />
-
-		<ScrollToBottomBtn class="fixed bottom-36 right-4 lg:right-10" scrollNode={chatContainer} />
 	</div>
 
 	<div
 		class="pointer-events-none absolute inset-x-0 bottom-0 z-0 mx-auto flex w-full
 			max-w-3xl flex-col items-center justify-center bg-gradient-to-t from-white
-			via-white/100 to-white/0 px-3.5 pt-2 dark:border-gray-800
+			via-white/100 to-white/0 px-3.5 pb-4 pt-2 dark:border-gray-800
 			dark:from-gray-900 dark:via-gray-900/100
-			dark:to-gray-900/0 max-sm:py-0 sm:px-5 md:pb-4 xl:max-w-4xl [&>*]:pointer-events-auto"
+			dark:to-gray-900/0 max-sm:py-0 sm:px-5 xl:max-w-4xl [&>*]:pointer-events-auto"
 	>
 		{#if !message.length && !messages.length && !sources.length && !loading && currentModel.isRouter && routerExamples.length && !hideRouterExamples}
 			<div
@@ -452,7 +458,8 @@
 		<div class="w-full">
 			<div class="flex w-full *:mb-3">
 				{#if !loading}
-					{#if lastIsError}
+					<!-- Retry button commented out - regeneration disabled -->
+					<!-- {#if lastIsError}
 						<RetryBtn
 							classNames="ml-auto"
 							onClick={() => {
@@ -463,7 +470,8 @@
 								}
 							}}
 						/>
-					{:else if messages && lastMessage && lastMessage.interrupted && !isReadOnly}
+					{:else  -->
+					{#if messages && lastMessage && lastMessage.interrupted && !isReadOnly}
 						<div class="ml-auto gap-2">
 							<ContinueBtn
 								onClick={() => {
@@ -478,6 +486,57 @@
 					{/if}
 				{/if}
 			</div>
+			<div
+				class={{
+					"mb-3 flex items-center justify-end gap-2 self-stretch whitespace-nowrap px-0.5 text-xs text-gray-400/90 max-md:mb-2 max-sm:gap-2": true,
+					"max-sm:hidden": focused && isVirtualKeyboard(),
+				}}
+			>
+				<PersonaSelector />
+				{#if models.find((m) => m.id === currentModel.id)}
+                    {#if !currentModel.isRouter || !loading}
+                        <a
+                            href="{base}/settings/models/{currentModel.id}"
+                            class="flex items-center gap-1.5 rounded-lg border border-gray-300 bg-gray-100 px-4 py-1.5 text-sm text-gray-400 shadow-sm hover:bg-gray-200 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-500 dark:hover:bg-gray-700"
+                        >
+							<CarbonModel class="text-xs" />
+							{#if currentModel.isRouter}
+								<IconOmni classNames="text-xs" />
+								<span class="max-w-[250px] truncate">{currentModel.displayName}</span>
+							{:else}
+								<span class="max-w-[250px] truncate">{currentModel.displayName}</span>
+							{/if}
+						</a>
+					{:else if showRouterDetails && streamingRouterMetadata}
+						<div
+							class="mr-2 flex items-center gap-1.5 whitespace-nowrap text-[.70rem] text-xs leading-none text-gray-400 dark:text-gray-400"
+						>
+							<IconOmni classNames="text-xs animate-pulse" />
+
+							<span class="router-badge-text router-shimmer">
+								{streamingRouterMetadata.route}
+							</span>
+
+							<span class="text-gray-500">with</span>
+
+							<span class="router-badge-text">
+								{streamingRouterModelName}
+							</span>
+						</div>
+					{:else}
+						<div
+							class="loading-dots relative inline-flex items-center text-gray-400 dark:text-gray-400"
+							aria-label="Routing…"
+						>
+							<IconOmni classNames="text-xs animate-pulse mr-1" /> Routing
+						</div>
+					{/if}
+			{:else}
+				<span class="inline-flex items-center line-through dark:border-gray-700">
+					{currentModel.id}
+				</span>
+			{/if}
+		</div>
 			<form
 				tabindex="-1"
 				aria-label={isFileUploadEnabled ? "file dropzone" : undefined}
@@ -551,57 +610,6 @@
 					</div>
 				{/if}
 			</form>
-			<div
-				class={{
-					"mt-3 flex items-center justify-end gap-2 self-stretch whitespace-nowrap px-0.5 pt-2 text-xs text-gray-400/90 max-md:mb-2 max-sm:gap-2": true,
-					"max-sm:hidden": focused && isVirtualKeyboard(),
-				}}
-			>
-				<PersonaSelector />
-				{#if models.find((m) => m.id === currentModel.id)}
-					{#if !currentModel.isRouter || !loading}
-						<a
-							href="{base}/settings/{currentModel.id}"
-							class="flex items-center gap-1.5 rounded-lg border border-gray-300 bg-gray-100 px-4 py-1.5 text-sm text-gray-700 shadow-sm hover:bg-gray-200 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
-						>
-							<CarbonModel class="text-xs" />
-							{#if currentModel.isRouter}
-								<IconOmni classNames="text-xs" />
-								<span class="max-w-[250px] truncate">{currentModel.displayName}</span>
-							{:else}
-								<span class="max-w-[250px] truncate">{currentModel.displayName}</span>
-							{/if}
-						</a>
-					{:else if showRouterDetails && streamingRouterMetadata}
-						<div
-							class="mr-2 flex items-center gap-1.5 whitespace-nowrap text-[.70rem] text-xs leading-none text-gray-400 dark:text-gray-400"
-						>
-							<IconOmni classNames="text-xs animate-pulse" />
-
-							<span class="router-badge-text router-shimmer">
-								{streamingRouterMetadata.route}
-							</span>
-
-							<span class="text-gray-500">with</span>
-
-							<span class="router-badge-text">
-								{streamingRouterModelName}
-							</span>
-						</div>
-					{:else}
-						<div
-							class="loading-dots relative inline-flex items-center text-gray-400 dark:text-gray-400"
-							aria-label="Routing…"
-						>
-							<IconOmni classNames="text-xs animate-pulse mr-1" /> Routing
-						</div>
-					{/if}
-			{:else}
-				<span class="inline-flex items-center line-through dark:border-gray-700">
-					{currentModel.id}
-				</span>
-			{/if}
-		</div>
 		</div>
 	</div>
 </div>

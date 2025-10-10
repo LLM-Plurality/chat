@@ -132,11 +132,13 @@
 		messageId = messagesPath.at(-1)?.id ?? undefined,
 		isRetry = false,
 		isContinue = false,
+		personaId,
 	}: {
 		prompt?: string;
 		messageId?: ReturnType<typeof v4>;
 		isRetry?: boolean;
 		isContinue?: boolean;
+		personaId?: string;
 	}): Promise<void> {
 		try {
 			$isAborted = false;
@@ -259,6 +261,7 @@
 					isRetry,
 					isContinue,
 					files: isRetry ? userMessage?.files : base64Files,
+					personaId,
 				},
 				messageUpdatesAbortController.signal
 			).catch((err) => {
@@ -266,90 +269,148 @@
 			});
 			if (messageUpdatesIterator === undefined) return;
 
-			files = [];
-			let buffer = "";
-			// Initialize lastUpdateTime outside the loop to persist between updates
-			let lastUpdateTime = new Date();
+		files = [];
+		let buffer = "";
+		// Initialize lastUpdateTime outside the loop to persist between updates
+		let lastUpdateTime = new Date();
 
-			let reasoningBuffer = "";
-			let reasoningLastUpdate = new Date();
+		let reasoningBuffer = "";
+		let reasoningLastUpdate = new Date();
 
-			for await (const update of messageUpdatesIterator) {
-				if ($isAborted) {
-					messageUpdatesAbortController.abort();
-					return;
+		// Per-persona buffers for multi-persona mode
+		const personaBuffers = new Map<string, string>();
+		const personaLastUpdateTimes = new Map<string, Date>();
+
+		for await (const update of messageUpdatesIterator) {
+			if ($isAborted) {
+				messageUpdatesAbortController.abort();
+				return;
+			}
+
+			// Remove null characters added due to remote keylogging prevention
+			// See server code for more details
+			if (update.type === MessageUpdateType.Stream) {
+				update.token = update.token.replaceAll("\0", "");
+			}
+
+			const isHighFrequencyUpdate =
+				(update.type === MessageUpdateType.Reasoning &&
+					update.subtype === MessageReasoningUpdateType.Stream) ||
+				update.type === MessageUpdateType.Stream ||
+				update.type === MessageUpdateType.Persona ||
+				(update.type === MessageUpdateType.Status &&
+					update.status === MessageUpdateStatus.KeepAlive);
+
+			if (!isHighFrequencyUpdate) {
+				messageToWriteTo.updates = [...(messageToWriteTo.updates ?? []), update];
+			}
+			const currentTime = new Date();
+
+			// Handle multi-persona updates
+			if (update.type === MessageUpdateType.Persona) {
+				// Initialize personaResponses if not already present
+				if (!messageToWriteTo.personaResponses) {
+					messageToWriteTo.personaResponses = [];
 				}
 
-				// Remove null characters added due to remote keylogging prevention
-				// See server code for more details
-				if (update.type === MessageUpdateType.Stream) {
-					update.token = update.token.replaceAll("\0", "");
-				}
+			// Find or create persona response
+			let personaResponse = messageToWriteTo.personaResponses.find(
+				(pr) => pr.personaId === update.personaId
+			);
+			if (!personaResponse) {
+				personaResponse = {
+					personaId: update.personaId,
+					personaName: update.personaName,
+					personaOccupation: update.personaOccupation,
+					personaStance: update.personaStance,
+					content: "",
+				};
+				messageToWriteTo.personaResponses.push(personaResponse);
+			}
 
-				const isHighFrequencyUpdate =
-					(update.type === MessageUpdateType.Reasoning &&
-						update.subtype === MessageReasoningUpdateType.Stream) ||
-					update.type === MessageUpdateType.Stream ||
-					(update.type === MessageUpdateType.Status &&
-						update.status === MessageUpdateStatus.KeepAlive);
+				// Handle different update types for this persona
+				if (update.updateType === "stream" && update.token && !$settings.disableStream) {
+					const personaBuffer = personaBuffers.get(update.personaId) || "";
+					const newBuffer = personaBuffer + update.token;
+					personaBuffers.set(update.personaId, newBuffer);
 
-				if (!isHighFrequencyUpdate) {
-					messageToWriteTo.updates = [...(messageToWriteTo.updates ?? []), update];
-				}
-				const currentTime = new Date();
-
-				if (update.type === MessageUpdateType.Stream && !$settings.disableStream) {
-					buffer += update.token;
-					// Check if this is the first update or if enough time has passed
-					if (currentTime.getTime() - lastUpdateTime.getTime() > updateDebouncer.maxUpdateTime) {
-						messageToWriteTo.content += buffer;
-						buffer = "";
-						lastUpdateTime = currentTime;
+					const lastUpdate = personaLastUpdateTimes.get(update.personaId) || new Date(0);
+					if (currentTime.getTime() - lastUpdate.getTime() > updateDebouncer.maxUpdateTime) {
+						personaResponse.content += newBuffer;
+						personaBuffers.set(update.personaId, "");
+						personaLastUpdateTimes.set(update.personaId, currentTime);
 					}
 					pending = false;
-				} else if (
-					update.type === MessageUpdateType.Status &&
-					update.status === MessageUpdateStatus.Error
-				) {
-					$error = update.message ?? "An error has occurred";
-				} else if (update.type === MessageUpdateType.Title) {
-					const convInData = conversations.find(({ id }) => id === page.params.id);
-					if (convInData) {
-						convInData.title = update.title;
-
-						$titleUpdate = {
-							title: update.title,
-							convId: page.params.id,
-						};
-					}
-				} else if (update.type === MessageUpdateType.File) {
-					messageToWriteTo.files = [
-						...(messageToWriteTo.files ?? []),
-						{ type: "hash", value: update.sha, mime: update.mime, name: update.name },
-					];
-				} else if (update.type === MessageUpdateType.Reasoning) {
-					if (!messageToWriteTo.reasoning) {
-						messageToWriteTo.reasoning = "";
-					}
-					if (update.subtype === MessageReasoningUpdateType.Stream) {
-						reasoningBuffer += update.token;
-						if (
-							currentTime.getTime() - reasoningLastUpdate.getTime() >
-							updateDebouncer.maxUpdateTime
-						) {
-							messageToWriteTo.reasoning += reasoningBuffer;
-							reasoningBuffer = "";
-							reasoningLastUpdate = currentTime;
-						}
-					}
-				} else if (update.type === MessageUpdateType.RouterMetadata) {
-					// Update router metadata immediately when received
-					messageToWriteTo.routerMetadata = {
+				} else if (update.updateType === "finalAnswer" && update.text) {
+					personaResponse.content = update.text;
+					personaResponse.interrupted = update.interrupted;
+				} else if (update.updateType === "routerMetadata" && update.route && update.model) {
+					personaResponse.routerMetadata = {
 						route: update.route,
 						model: update.model,
 					};
+				} else if (update.updateType === "status" && update.error) {
+					// Handle persona errors - mark as interrupted so loading can stop
+					personaResponse.interrupted = true;
+					personaResponse.content = personaResponse.content || `Error: ${update.error}`;
 				}
+			} else if (update.type === MessageUpdateType.Stream && !$settings.disableStream) {
+				buffer += update.token;
+				// Check if this is the first update or if enough time has passed
+				if (currentTime.getTime() - lastUpdateTime.getTime() > updateDebouncer.maxUpdateTime) {
+					messageToWriteTo.content += buffer;
+					buffer = "";
+					lastUpdateTime = currentTime;
+				}
+				pending = false;
+			} else if (
+				update.type === MessageUpdateType.Status &&
+				update.status === MessageUpdateStatus.Error
+			) {
+				$error = update.message ?? "An error has occurred";
+			} else if (update.type === MessageUpdateType.Title) {
+				const convInData = conversations.find(({ id }) => id === page.params.id);
+				if (convInData) {
+					convInData.title = update.title;
+
+					$titleUpdate = {
+						title: update.title,
+						convId: page.params.id,
+					};
+				}
+			} else if (update.type === MessageUpdateType.File) {
+				messageToWriteTo.files = [
+					...(messageToWriteTo.files ?? []),
+					{ type: "hash", value: update.sha, mime: update.mime, name: update.name },
+				];
+			} else if (update.type === MessageUpdateType.Reasoning) {
+				if (!messageToWriteTo.reasoning) {
+					messageToWriteTo.reasoning = "";
+				}
+				if (update.subtype === MessageReasoningUpdateType.Stream) {
+					reasoningBuffer += update.token;
+					if (
+						currentTime.getTime() - reasoningLastUpdate.getTime() >
+						updateDebouncer.maxUpdateTime
+					) {
+						messageToWriteTo.reasoning += reasoningBuffer;
+						reasoningBuffer = "";
+						reasoningLastUpdate = currentTime;
+					}
+				}
+			} else if (update.type === MessageUpdateType.RouterMetadata) {
+				// Update router metadata immediately when received
+				messageToWriteTo.routerMetadata = {
+					route: update.route,
+					model: update.model,
+				};
+			} else if (update.type === MessageUpdateType.FinalAnswer) {
+				// Handle final answer - set authoritative final content from server
+				messageToWriteTo.content = update.text;
+				messageToWriteTo.interrupted = update.interrupted;
+				pending = false;
 			}
+		}
 		} catch (err) {
 			if (err instanceof Error && err.message.includes("overloaded")) {
 				$error = "Too much traffic, please try again.";
@@ -390,7 +451,7 @@
 		}
 	}
 
-	async function onRetry(payload: { id: Message["id"]; content?: string }) {
+	async function onRetry(payload: { id: Message["id"]; content?: string; personaId?: string }) {
 		const lastMsgId = payload.id;
 		messagesPath = createMessagesPath(messages, lastMsgId);
 
@@ -399,6 +460,7 @@
 				prompt: payload.content,
 				messageId: payload.id,
 				isRetry: true,
+				personaId: payload.personaId,
 			});
 		} else {
 			await convFromShared()
@@ -411,6 +473,7 @@
 							prompt: payload.content,
 							messageId: payload.id,
 							isRetry: true,
+							personaId: payload.personaId,
 						})
 				)
 				.finally(() => (loading = false));
@@ -450,15 +513,40 @@
 	function isConversationStreaming(msgs: Message[]): boolean {
 		const lastAssistant = [...msgs].reverse().find((msg) => msg.from === "assistant");
 		if (!lastAssistant) return false;
-		const hasFinalAnswer =
-			lastAssistant.updates?.some((update) => update.type === MessageUpdateType.FinalAnswer) ??
-			false;
+		
+		// Check for errors
 		const hasError =
 			lastAssistant.updates?.some(
 				(update) =>
 					update.type === MessageUpdateType.Status && update.status === MessageUpdateStatus.Error
 			) ?? false;
-		return !hasFinalAnswer && !hasError;
+		if (hasError) return false;
+		
+		// Check if multi-persona mode
+		if (lastAssistant.personaResponses && lastAssistant.personaResponses.length > 0) {
+			// Check if we have a Finished status (sent when all personas complete)
+			const hasFinished =
+				lastAssistant.updates?.some(
+					(update) =>
+						update.type === MessageUpdateType.Status &&
+						update.status === MessageUpdateStatus.Finished
+				) ?? false;
+			if (hasFinished) return false;
+			
+			// In multi-persona mode, check if all personas have sent their final answers
+			const allPersonasComplete = lastAssistant.personaResponses.every((pr) => {
+				// A persona is complete if interrupted field is defined (set when final answer arrives)
+				// The interrupted field is only set when updateType === "finalAnswer" is processed
+				return pr.interrupted !== undefined;
+			});
+			return !allPersonasComplete;
+		}
+		
+		// Single persona mode: check for FinalAnswer update
+		const hasFinalAnswer =
+			lastAssistant.updates?.some((update) => update.type === MessageUpdateType.FinalAnswer) ??
+			false;
+		return !hasFinalAnswer;
 	}
 
 	$effect(() => {
@@ -524,6 +612,7 @@
 	{messagesAlternatives}
 	shared={data.shared}
 	preprompt={data.preprompt}
+	personaId={(data as any).personaId}
 	bind:files
 	onmessage={onMessage}
 	onretry={onRetry}

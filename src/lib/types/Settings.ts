@@ -13,8 +13,8 @@ export interface Settings extends Timestamps {
 	welcomeModalSeenAt?: Date | null;
 	activeModel: string;
 
-	// Active persona and user's custom personas
-	activePersona: string; // Persona ID
+	// Active personas and user's custom personas
+	activePersonas: string[]; // Persona IDs
 	personas: Persona[]; // User's custom personas + edited defaults
 
 	/**
@@ -39,7 +39,7 @@ export type SettingsEditable = Omit<Settings, "welcomeModalSeenAt" | "createdAt"
 export const DEFAULT_SETTINGS = {
 	shareConversationsWithModelAuthors: true,
 	activeModel: defaultModel.id,
-	activePersona: "default", // Default persona
+	activePersonas: ["dr-robert-zane", "mayor-david-chen"], // Default personas (can have multiple)
 	personas: DEFAULT_PERSONAS.map((p) => ({
 		...p,
 		createdAt: new Date(),

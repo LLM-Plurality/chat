@@ -14,6 +14,7 @@ type MessageUpdateRequestOptions = {
 	isRetry: boolean;
 	isContinue: boolean;
 	files?: MessageFile[];
+	personaId?: string; // Optional: specific persona to regenerate
 };
 export async function fetchMessageUpdates(
 	conversationId: string,
@@ -30,6 +31,7 @@ export async function fetchMessageUpdates(
 		id: opts.messageId,
 		is_retry: opts.isRetry,
 		is_continue: opts.isContinue,
+		persona_id: opts.personaId,
 	});
 
 	opts.files?.forEach((file) => {

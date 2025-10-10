@@ -12,17 +12,26 @@ const sanitizeJSONEnv = (val: string, fallback: string) => {
 	return unquoted || fallback;
 };
 
+const parseJSONEnv = (val: string, fallback: string) => {
+	try {
+		return JSON5.parse(sanitizeJSONEnv(val, fallback));
+	} catch (e) {
+		console.warn(`Failed to parse environment variable as JSON5, using fallback: ${fallback}`, e);
+		return JSON5.parse(fallback);
+	}
+};
+
 const allowedUserEmails = z
 	.array(z.string().email())
 	.optional()
 	.default([])
-	.parse(JSON5.parse(sanitizeJSONEnv(config.ALLOWED_USER_EMAILS, "[]")));
+	.parse(parseJSONEnv(config.ALLOWED_USER_EMAILS, "[]"));
 
 const allowedUserDomains = z
 	.array(z.string().regex(/\.\w+$/)) // Contains at least a dot
 	.optional()
 	.default([])
-	.parse(JSON5.parse(sanitizeJSONEnv(config.ALLOWED_USER_DOMAINS, "[]")));
+	.parse(parseJSONEnv(config.ALLOWED_USER_DOMAINS, "[]"));
 
 export async function GET({ url, locals, cookies, request, getClientAddress }) {
 	const { error: errorName, error_description: errorDescription } = z

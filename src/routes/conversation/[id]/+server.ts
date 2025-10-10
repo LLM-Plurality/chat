@@ -18,7 +18,6 @@ import { convertLegacyConversation } from "$lib/utils/tree/convertLegacyConversa
 import { isMessageId } from "$lib/utils/tree/isMessageId";
 import { buildSubtree } from "$lib/utils/tree/buildSubtree.js";
 import { addChildren } from "$lib/utils/tree/addChildren.js";
-import { addSibling } from "$lib/utils/tree/addSibling.js";
 import { usageLimits } from "$lib/server/usageLimits";
 import { textGeneration } from "$lib/server/textGeneration";
 import type { TextGenerationContext } from "$lib/server/textGeneration/types";
@@ -160,6 +159,7 @@ export async function POST({ request, locals, params, getClientAddress }) {
 			),
 			is_retry: z.optional(z.boolean()),
 			is_continue: z.optional(z.boolean()),
+			persona_id: z.optional(z.string()), // Optional: specific persona to regenerate
 			files: z.optional(
 				z.array(
 					z.object({
@@ -229,6 +229,11 @@ export async function POST({ request, locals, params, getClientAddress }) {
 		messageToWriteToId = messageId;
 		messagesForPrompt = buildSubtree(conv, messageId);
 	} else if (isRetry && messageId) {
+		// REGENERATION DISABLED - commenting out retry logic
+		// Returning error when retry is attempted
+		error(400, "Regeneration is currently disabled");
+
+		/* 
 		// two cases, if we're retrying a user message with a newPrompt set,
 		// it means we're editing a user message
 		// if we're retrying on an assistant message, newPrompt cannot be set
@@ -276,6 +281,7 @@ export async function POST({ request, locals, params, getClientAddress }) {
 			messagesForPrompt = buildSubtree(conv, messageId);
 			messagesForPrompt.pop(); // don't need the latest assistant message in the prompt since we're retrying it
 		}
+		*/
 	} else {
 		// just a normal linear conversation, so we add the user message
 		// and the blank assistant message back to back
@@ -335,6 +341,18 @@ export async function POST({ request, locals, params, getClientAddress }) {
 	const stream = new ReadableStream({
 		async start(controller) {
 			messageToWriteTo.updates ??= [];
+
+			// Send immediate "Started" status for optimistic UI feedback
+			const startedEvent = {
+				type: MessageUpdateType.Status,
+				status: MessageUpdateStatus.Started,
+			};
+			try {
+				controller.enqueue(JSON.stringify(startedEvent) + "\n");
+			} catch (err) {
+				// Client may have disconnected already
+			}
+
 			async function update(event: MessageUpdate) {
 				if (!messageToWriteTo || !conv) {
 					throw Error("No message or conversation to write events to");
@@ -444,53 +462,201 @@ export async function POST({ request, locals, params, getClientAddress }) {
 
 			// Get current persona definition (may have been updated since conversation creation)
 			const userSettings = await collections.settings.findOne(authCondition(locals));
-			const personaId = conv.personaId ?? userSettings?.activePersona ?? "default-neutral";
-			const currentPersona = userSettings?.personas?.find((p) => p.id === personaId);
+			const activePersonaIds = userSettings?.activePersonas ?? [];
 
-			// Use current persona prompt (reflects any edits)
-			const preprompt = currentPersona?.prompt ?? conv.preprompt ?? "";
+			// Get all active personas
+			const activePersonas = activePersonaIds
+				.map((id) => userSettings?.personas?.find((p) => p.id === id))
+				.filter((p): p is import("$lib/types/Persona").Persona => p !== undefined);
 
-			// Update conversation's preprompt to reflect current persona
-			await collections.conversations.updateOne(
-				{ _id: conv._id },
-				{ $set: { preprompt, updatedAt: new Date() } }
-			);
+			// Determine if we should use multi-persona mode
+			const useMultiPersona = activePersonas.length > 1;
 
-			// Update conv object with current preprompt
-			conv.preprompt = preprompt;
+			if (!useMultiPersona) {
+				// Use current persona prompt (reflects any edits)
+				const preprompt = conv.preprompt ?? "";
 
-			try {
-				const ctx: TextGenerationContext = {
-					model,
-					endpoint: await model.getEndpoint(),
-					conv,
-					messages: messagesForPrompt,
-					assistant: undefined,
-					isContinue: isContinue ?? false,
-					promptedAt,
-					ip: getClientAddress(),
-					username: locals.user?.username,
-					// Force-enable multimodal if user settings say so for this model
-					forceMultimodal: Boolean(userSettings?.multimodalOverrides?.[model.id]),
-				};
-				// run the text generation and send updates to the client
-				for await (const event of textGeneration(ctx)) await update(event);
-			} catch (e) {
-				hasError = true;
-				await update({
-					type: MessageUpdateType.Status,
-					status: MessageUpdateStatus.Error,
-					message: (e as Error).message,
-				});
-				logger.error(e);
-			} finally {
-				// check if no output was generated
-				if (!hasError && messageToWriteTo.content === initialMessageContent) {
+				// Update conversation's preprompt to reflect current persona
+				await collections.conversations.updateOne(
+					{ _id: conv._id },
+					{ $set: { preprompt, updatedAt: new Date() } }
+				);
+
+				// Update conv object with current preprompt
+				conv.preprompt = preprompt;
+
+				try {
+					const ctx: TextGenerationContext = {
+						model,
+						endpoint: await model.getEndpoint(),
+						conv,
+						messages: messagesForPrompt,
+						assistant: undefined,
+						isContinue: isContinue ?? false,
+						promptedAt,
+						ip: getClientAddress(),
+						username: locals.user?.username,
+						// Force-enable multimodal if user settings say so for this model
+						forceMultimodal: Boolean(userSettings?.multimodalOverrides?.[model.id]),
+					};
+					// run the text generation and send updates to the client
+					for await (const event of textGeneration(ctx)) await update(event);
+				} catch (e) {
+					hasError = true;
 					await update({
 						type: MessageUpdateType.Status,
 						status: MessageUpdateStatus.Error,
-						message: "No output was generated. Something went wrong.",
+						message: (e as Error).message,
 					});
+					logger.error(e);
+				} finally {
+					// check if no output was generated
+					if (!hasError && messageToWriteTo.content === initialMessageContent) {
+						await update({
+							type: MessageUpdateType.Status,
+							status: MessageUpdateStatus.Error,
+							message: "No output was generated. Something went wrong.",
+						});
+					}
+				}
+			} else {
+				// Multi-persona mode - parallel generation for all active personas
+				const { multiPersonaTextGeneration } = await import(
+					"$lib/server/textGeneration/multiPersona"
+				);
+				const { generateTitleForConversation } = await import("$lib/server/textGeneration/title");
+
+				// REGENERATION DISABLED - commenting out persona retry logic
+				/* 
+			// Check if this is a retry for a specific persona
+			const isPersonaRetry = isRetry && personaId;
+			
+			// If retrying a specific persona, get the previous message's persona responses
+			const previousMessage = isPersonaRetry 
+				? conv.messages.find((msg) => msg.id === messageId)
+				: null;
+
+			// Initialize persona responses structure
+			if (isPersonaRetry && previousMessage?.personaResponses) {
+				// Copy all previous persona responses
+				messageToWriteTo.personaResponses = previousMessage.personaResponses.map((pr) => {
+					if (pr.personaId === personaId) {
+						// For the persona being regenerated, store the old response as a child
+						const oldResponse = { ...pr };
+						delete oldResponse.children; // Don't nest children recursively
+						delete oldResponse.currentChildIndex;
+						
+						return {
+							personaId: pr.personaId,
+							personaName: pr.personaName,
+							personaOccupation: pr.personaOccupation,
+							personaStance: pr.personaStance,
+							content: "",
+							updates: [],
+							children: [oldResponse], // Store the old response
+							currentChildIndex: 0, // New response will be at index 0
+						};
+					} else {
+						// Keep other personas' responses as-is
+						return { ...pr };
+					}
+				});
+			} else {
+			*/
+				// Normal generation: initialize empty responses for all personas
+				messageToWriteTo.personaResponses = activePersonas.map((p) => ({
+					personaId: p.id,
+					personaName: p.name,
+					personaOccupation: p.jobSector,
+					personaStance: p.stance,
+					content: "",
+					updates: [],
+				}));
+				// }
+
+				try {
+					// Generate title if needed (do this once, not per-persona)
+					if (conv.title === "New Chat") {
+						for await (const titleUpdate of generateTitleForConversation(conv)) {
+							await update(titleUpdate);
+						}
+					}
+
+					// Filter out system messages to prevent contamination
+					// Each persona will get their own prompt via the preprompt parameter
+					const messagesWithoutSystem = messagesForPrompt.filter((msg) => msg.from !== "system");
+
+					const ctx: TextGenerationContext = {
+						model,
+						endpoint: await model.getEndpoint(),
+						conv,
+						messages: messagesWithoutSystem,
+						assistant: undefined,
+						isContinue: isContinue ?? false,
+						promptedAt,
+						ip: getClientAddress(),
+						username: locals.user?.username,
+						forceMultimodal: Boolean(userSettings?.multimodalOverrides?.[model.id]),
+					};
+
+					// REGENERATION DISABLED - always generate for all active personas
+					/* 
+				// Determine which personas to generate for
+				const personasToGenerate = isPersonaRetry && personaId
+					? (() => {
+						// Find the specific persona from all user personas, not just active ones
+						const persona = userSettings?.personas?.find((p) => p.id === personaId);
+						return persona ? [persona] : [];
+					})()
+					: activePersonas;
+				*/
+					const personasToGenerate = activePersonas;
+
+					// Run multi-persona text generation (preprocessing happens once inside)
+					for await (const event of multiPersonaTextGeneration(ctx, personasToGenerate)) {
+						// Handle persona-specific updates
+						if (event.type === MessageUpdateType.Persona) {
+							const personaResponse = messageToWriteTo.personaResponses?.find(
+								(pr) => pr.personaId === event.personaId
+							);
+
+							if (personaResponse) {
+								if (event.updateType === "stream" && event.token) {
+									personaResponse.content += event.token;
+								} else if (event.updateType === "finalAnswer" && event.text) {
+									personaResponse.content = event.text;
+									personaResponse.interrupted = event.interrupted;
+								} else if (event.updateType === "routerMetadata" && event.route && event.model) {
+									personaResponse.routerMetadata = {
+										route: event.route,
+										model: event.model,
+									};
+								}
+							}
+						}
+
+						await update(event);
+					}
+				} catch (e) {
+					hasError = true;
+					await update({
+						type: MessageUpdateType.Status,
+						status: MessageUpdateStatus.Error,
+						message: (e as Error).message,
+					});
+					logger.error(e);
+				} finally {
+					// Check if at least one persona generated output
+					const hasAnyOutput = messageToWriteTo.personaResponses?.some(
+						(pr) => pr.content.length > 0
+					);
+					if (!hasError && !hasAnyOutput) {
+						await update({
+							type: MessageUpdateType.Status,
+							status: MessageUpdateStatus.Error,
+							message: "No output was generated from any persona. Something went wrong.",
+						});
+					}
 				}
 			}
 

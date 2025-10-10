@@ -9,6 +9,7 @@ import { models, validateModel } from "$lib/server/models";
 import { v4 } from "uuid";
 import { authCondition } from "$lib/server/auth";
 import { usageLimits } from "$lib/server/usageLimits";
+import { generatePersonaPrompt } from "$lib/types/Persona";
 
 export const POST: RequestHandler = async ({ locals, request }) => {
 	const body = await request.text();
@@ -75,13 +76,15 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		error(400, "Can't start a conversation with an unlisted model");
 	}
 
-	// Get user settings to retrieve active persona
+	// Get user settings to retrieve active personas (use first one for conversation)
 	const userSettings = await collections.settings.findOne(authCondition(locals));
-	const activePersonaId = userSettings?.activePersona ?? "default-neutral";
+	const activePersonaId = userSettings?.activePersonas?.[0] ?? "default-neutral";
 	const activePersona = userSettings?.personas?.find((p) => p.id === activePersonaId);
 
 	// Use persona prompt as preprompt, fall back to model preprompt or provided preprompt
-	values.preprompt = activePersona?.prompt ?? values.preprompt ?? model?.preprompt ?? "";
+	values.preprompt = activePersona
+		? generatePersonaPrompt(activePersona)
+		: (values.preprompt ?? model?.preprompt ?? "");
 
 	if (messages && messages.length > 0 && messages[0].from === "system") {
 		messages[0].content = values.preprompt;
