@@ -2,7 +2,6 @@
 	import { onDestroy } from "svelte";
 
 	import CarbonCopy from "~icons/carbon/copy";
-	import Tooltip from "./Tooltip.svelte";
 
 	interface Props {
 		classNames?: string;
@@ -56,7 +55,7 @@
 			}
 			timeout = setTimeout(() => {
 				isSuccess = false;
-			}, 1000);
+			}, 500);
 		} catch (err) {
 			console.error(err);
 		}
@@ -78,13 +77,9 @@
 		handleClick();
 	}}
 >
-	<div class="relative">
+	<div class="relative transition-transform duration-200 {isSuccess ? 'scale-125' : 'scale-100'}">
 		{#if children}{@render children()}{:else}
 			<CarbonCopy class={iconClassNames} />
-		{/if}
-
-		{#if showTooltip}
-			<Tooltip classNames={isSuccess ? "opacity-100" : "opacity-0"} />
 		{/if}
 	</div>
 </button>

@@ -74,7 +74,7 @@ export const userGroup = new Elysia()
 					welcomeModalSeenAt: settings?.welcomeModalSeenAt ?? null,
 
 					activeModel: settings?.activeModel ?? DEFAULT_SETTINGS.activeModel,
-					activePersona: settings?.activePersona ?? DEFAULT_SETTINGS.activePersona,
+					activePersonas: settings?.activePersonas ?? DEFAULT_SETTINGS.activePersonas,
 					personas: settings?.personas ?? DEFAULT_SETTINGS.personas,
 					disableStream: settings?.disableStream ?? DEFAULT_SETTINGS.disableStream,
 					directPaste: settings?.directPaste ?? DEFAULT_SETTINGS.directPaste,
@@ -96,7 +96,7 @@ export const userGroup = new Elysia()
 							.default(DEFAULT_SETTINGS.shareConversationsWithModelAuthors),
 						welcomeModalSeen: z.boolean().optional(),
 						activeModel: z.string().default(DEFAULT_SETTINGS.activeModel),
-						activePersona: z.string().default(DEFAULT_SETTINGS.activePersona),
+						activePersonas: z.array(z.string()).min(1).default(DEFAULT_SETTINGS.activePersonas),
 						personas: z.array(personaSchema).min(1).default(DEFAULT_SETTINGS.personas),
 						multimodalOverrides: z.record(z.boolean()).default({}),
 						disableStream: z.boolean().default(false),

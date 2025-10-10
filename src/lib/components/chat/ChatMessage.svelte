@@ -21,6 +21,8 @@
 	import OpenReasoningResults from "./OpenReasoningResults.svelte";
 	import Alternatives from "./Alternatives.svelte";
 	import MessageAvatar from "./MessageAvatar.svelte";
+	import PersonaResponseCarousel from "./PersonaResponseCarousel.svelte";
+	import { THINK_BLOCK_REGEX } from "$lib/constants/thinkBlockRegex";
 
 	interface Props {
 		message: Message;
@@ -31,7 +33,10 @@
 		alternatives?: Message["id"][];
 		editMsdgId?: Message["id"] | null;
 		isLast?: boolean;
-		onretry?: (payload: { id: Message["id"]; content?: string }) => void;
+		personaName?: string;
+		personaOccupation?: string;
+		personaStance?: string;
+		onretry?: (payload: { id: Message["id"]; content?: string; personaId?: string }) => void;
 		onshowAlternateMsg?: (payload: { id: Message["id"] }) => void;
 	}
 
@@ -44,6 +49,9 @@
 		alternatives = [],
 		editMsdgId = $bindable(null),
 		isLast = false,
+		personaName,
+		personaOccupation,
+		personaStance,
 		onretry,
 		onshowAlternateMsg,
 	}: Props = $props();
@@ -84,8 +92,6 @@
 	// const urlNotTrailing = $derived(page.url.pathname.replace(/\/$/, ""));
 	// let downloadLink = $derived(urlNotTrailing + `/message/${message.id}/prompt`);
 
-	// Zero-config reasoning autodetection: detect <think> blocks in content
-	const THINK_BLOCK_REGEX = /(<think>[\s\S]*?(?:<\/think>|$))/g;
 	let thinkSegments = $derived.by(() => message.content.split(THINK_BLOCK_REGEX));
 	let hasServerReasoning = $derived(
 		reasoningUpdates &&
@@ -128,13 +134,40 @@
 		onclick={() => (isTapped = !isTapped)}
 		onkeydown={() => (isTapped = !isTapped)}
 	>
-		<MessageAvatar
-			classNames="mt-5 size-3.5 flex-none select-none rounded-full shadow-lg max-sm:hidden"
-			animating={isLast && loading}
-		/>
+	<MessageAvatar
+		classNames="mt-5 size-3.5 flex-none select-none rounded-full shadow-lg max-sm:hidden"
+		animating={isLast && loading}
+	/>
+	
+	{#if message.personaResponses && message.personaResponses.length > 0}
+		<!-- Multi-persona mode: no outer container, just carousel -->
+		<div bind:this={contentEl} class="flex-1">
+			<PersonaResponseCarousel 
+				personaResponses={message.personaResponses} 
+				loading={isLast && loading}
+				onretry={(personaId: string) => onretry?.({ id: message.id, content: undefined, personaId })}
+			/>
+		</div>
+	{:else}
 		<div
 			class="relative flex min-w-[60px] flex-col gap-2 break-words rounded-2xl border border-gray-100 bg-gradient-to-br from-gray-50 px-5 py-3.5 text-gray-600 prose-pre:my-2 dark:border-gray-800 dark:from-gray-800/80 dark:text-gray-300"
 		>
+			<!-- Persona Name Header (for single-persona mode) -->
+			{#if personaName}
+				<div class="mb-2 flex items-start justify-between border-b border-gray-200 pb-2 dark:border-gray-700">
+					<div>
+						<h3 class="text-lg font-semibold text-gray-700 dark:text-gray-200">
+							{personaName}
+						</h3>
+						{#if personaOccupation || personaStance}
+							<div class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+								{#if personaOccupation}<span>{personaOccupation}</span>{/if}{#if personaOccupation && personaStance}<span class="mx-1">•</span>{/if}{#if personaStance}<span>{personaStance}</span>{/if}
+							</div>
+						{/if}
+					</div>
+				</div>
+			{/if}
+
 			{#if message.files?.length}
 				<div class="flex h-fit flex-wrap gap-x-5 gap-y-2">
 					{#each message.files as file (file.value)}
@@ -190,64 +223,57 @@
 					</div>
 				{/if}
 			</div>
-		</div>
 
-		{#if message.routerMetadata || (!loading && message.content)}
+			<!-- Copy button inside the bubble -->
+			{#if !isLast || !loading}
+				<div class="mt-2 flex justify-end">
+					<CopyToClipBoardBtn
+						onClick={() => {
+							isCopied = true;
+						}}
+						classNames="btn rounded-md p-2 text-sm text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700/50"
+						value={message.content}
+						iconClassNames="text-xs"
+					/>
+				</div>
+			{/if}
+		</div>
+	{/if}
+
+		{#if message.routerMetadata && (!isLast || !loading)}
 			<div
 				class="absolute -bottom-3.5 {message.routerMetadata && messageInfoWidth > messageWidth
 					? 'left-1 pl-1 lg:pl-7'
 					: 'right-1'} flex max-w-[calc(100dvw-40px)] items-center gap-0.5 overflow-hidden"
 				bind:offsetWidth={messageInfoWidth}
 			>
-				{#if message.routerMetadata && (!isLast || !loading)}
-					<div
-						class="mr-2 flex items-center gap-1.5 truncate whitespace-nowrap text-[.65rem] text-gray-400 dark:text-gray-400 sm:text-xs"
-					>
-						<span class="truncate rounded bg-gray-100 px-1 font-mono dark:bg-gray-800 sm:py-px">
-							{message.routerMetadata.route}
+				<div
+					class="mr-2 flex items-center gap-1.5 truncate whitespace-nowrap text-[.65rem] text-gray-400 dark:text-gray-400 sm:text-xs"
+				>
+					<span class="truncate rounded bg-gray-100 px-1 font-mono dark:bg-gray-800 sm:py-px">
+						{message.routerMetadata.route}
+					</span>
+					<span class="text-gray-500">with</span>
+					{#if publicConfig.isHuggingChat}
+						<a
+							href="/chat/settings/models/{message.routerMetadata.model}"
+							class="truncate rounded bg-gray-100 px-1 font-mono hover:text-gray-500 dark:bg-gray-800 dark:hover:text-gray-300 sm:py-px"
+						>
+							{message.routerMetadata.model.split("/").pop()}
+						</a>
+					{:else}
+						<span class="truncate rounded bg-gray-100 px-1.5 font-mono dark:bg-gray-800 sm:py-px">
+							{message.routerMetadata.model.split("/").pop()}
 						</span>
-						<span class="text-gray-500">with</span>
-						{#if publicConfig.isHuggingChat}
-							<a
-								href="/chat/settings/{message.routerMetadata.model}"
-								class="truncate rounded bg-gray-100 px-1 font-mono hover:text-gray-500 dark:bg-gray-800 dark:hover:text-gray-300 sm:py-px"
-							>
-								{message.routerMetadata.model.split("/").pop()}
-							</a>
-						{:else}
-							<span class="truncate rounded bg-gray-100 px-1.5 font-mono dark:bg-gray-800 sm:py-px">
-								{message.routerMetadata.model.split("/").pop()}
-							</span>
-						{/if}
-					</div>
-				{/if}
-				{#if !isLast || !loading}
-					<CopyToClipBoardBtn
-						onClick={() => {
-							isCopied = true;
-						}}
-						classNames="btn rounded-sm p-1 text-sm text-gray-400 hover:text-gray-500 focus:ring-0 dark:text-gray-400 dark:hover:text-gray-300"
-						value={message.content}
-						iconClassNames="text-xs"
-					/>
-					<button
-						class="btn rounded-sm p-1 text-xs text-gray-400 hover:text-gray-500 focus:ring-0 dark:text-gray-400 dark:hover:text-gray-300"
-						title="Retry"
-						type="button"
-						onclick={() => {
-							onretry?.({ id: message.id });
-						}}
-					>
-						<CarbonRotate360 />
-					</button>
-					{#if alternatives.length > 1 && editMsdgId === null}
-						<Alternatives
-							{message}
-							{alternatives}
-							{loading}
-							onshowAlternateMsg={(payload) => onshowAlternateMsg?.(payload)}
-						/>
 					{/if}
+				</div>
+				{#if alternatives.length > 1 && editMsdgId === null}
+					<Alternatives
+						{message}
+						{alternatives}
+						{loading}
+						onshowAlternateMsg={(payload) => onshowAlternateMsg?.(payload)}
+					/>
 				{/if}
 			</div>
 		{/if}

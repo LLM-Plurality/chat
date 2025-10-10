@@ -12,7 +12,7 @@ type SettingsStore = {
 	welcomeModalSeen: boolean;
 	welcomeModalSeenAt: Date | null;
 	activeModel: string;
-	activePersona: string;
+	activePersonas: string[];
 	personas: Persona[];
 	multimodalOverrides: Record<string, boolean>;
 	recentlySaved: boolean;

@@ -9,12 +9,12 @@ const migration: Migration = {
 	up: async () => {
 		const { settings } = collections;
 
-		// Add personas array and activePersona to all existing settings
+		// Add personas array and activePersonas to all existing settings
 		await settings.updateMany(
 			{},
 			{
 				$set: {
-					activePersona: "default",
+					activePersonas: ["default"],
 					personas: DEFAULT_PERSONAS.map((p) => ({
 						...p,
 						createdAt: new Date(),
