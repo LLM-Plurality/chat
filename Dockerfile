@@ -21,13 +21,18 @@ RUN touch /app/.env.local
 
 USER root
 RUN apt-get update
-RUN apt-get install -y libgomp1 libcurl4
+RUN apt-get install -y libgomp1 libcurl4 curl
+
+# Install Ollama
+RUN curl -fsSL https://ollama.ai/install.sh | sh
+
+# ensure ollama cache dir exists before adjusting ownership
+RUN mkdir -p /home/user/.ollama && chown -R 1000:1000 /home/user/.ollama
 
 # ensure npm cache dir exists before adjusting ownership
 RUN mkdir -p /home/user/.npm && chown -R 1000:1000 /home/user/.npm
 
 USER user
-
 
 COPY --chown=1000 .env /app/.env
 COPY --chown=1000 entrypoint.sh /app/entrypoint.sh
