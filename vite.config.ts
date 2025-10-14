@@ -39,7 +39,13 @@ export default defineConfig({
 		include: ["uuid", "sharp", "@gradio/client", "clsx"],
 	},
 	ssr: {
-		noExternal: ["isomorphic-dompurify"],
+		noExternal: [
+			"isomorphic-dompurify",
+			"dompurify",
+			"@asamuzakjp/css-color",
+			"@asamuzakjp/dom-selector",
+		],
+		external: ["jsdom"],
 	},
 	test: {
 		workspace: [
