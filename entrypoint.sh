@@ -16,7 +16,11 @@ fi;
 
 # Start Ollama service for HF space (local gpu)
 echo "Starting local Ollama service"
-nohup ollama serve > /tmp/ollama.log 2>&1 &
+
+# Ensure dir for persistent model storage
+mkdir -p /data/models
+
+nohup env OLLAMA_MODELS=/data/models ollama serve > /tmp/ollama.log 2>&1 &
 OLLAMA_PID=$!
 
 # Wait for Ollama to be ready
@@ -32,15 +36,14 @@ until curl -s http://localhost:11434/api/tags > /dev/null 2>&1; do
     sleep 2
 done
 
-# Pull models, ex.: OLLAMA_MODELS="llama3.1:8b,mistral:7b,codellama:13b"
+# Pull models
 OLLAMA_MODELS=${OLLAMA_MODELS:-llama3.1:8b}
-
 IFS=',' read -ra MODEL_ARRAY <<< "$OLLAMA_MODELS"
 for MODEL in "${MODEL_ARRAY[@]}"; do
-    MODEL=$(echo "$MODEL" | xargs) # trim whitespace
-    if ! ollama list | grep -q "$MODEL"; then
+    MODEL=$(echo "$MODEL" | xargs)
+    if ! env OLLAMA_MODELS=/data/models ollama list | grep -q "$MODEL"; then
         echo "  Pulling model: $MODEL (this may take several minutes)..."
-        ollama pull "$MODEL"
+        env OLLAMA_MODELS=/data/models ollama pull "$MODEL"
         echo "  $MODEL pulled successfully!"
     else
         echo "  $MODEL already exists"
