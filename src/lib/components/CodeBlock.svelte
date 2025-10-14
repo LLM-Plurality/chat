@@ -1,9 +1,10 @@
 <script lang="ts">
 	import CopyToClipBoardBtn from "./CopyToClipBoardBtn.svelte";
-	import DOMPurify from "isomorphic-dompurify";
 	import HtmlPreviewModal from "./HtmlPreviewModal.svelte";
 	import PlayFilledAlt from "~icons/carbon/play-filled-alt";
 	import EosIconsLoading from "~icons/eos-icons/loading";
+	import { browser } from "$app/environment";
+	import { onMount } from "svelte";
 
 	interface Props {
 		code?: string;
@@ -12,6 +13,9 @@
 	}
 
 	let { code = "", rawCode = "", loading = false }: Props = $props();
+
+	let DOMPurify: typeof import("isomorphic-dompurify").default | null = null;
+	let sanitizedCode = $state(code);
 
 	let previewOpen = $state(false);
 
@@ -29,6 +33,21 @@
 	}
 
 	let showPreview = $derived(hasStrictHtml5Doctype(rawCode) || isSvgDocument(rawCode));
+
+	onMount(async () => {
+		if (browser) {
+			const { default: purify } = await import("isomorphic-dompurify");
+			DOMPurify = purify;
+		}
+	});
+
+	$effect(() => {
+		if (DOMPurify) {
+			sanitizedCode = DOMPurify.sanitize(code);
+		} else {
+			sanitizedCode = code;
+		}
+	});
 </script>
 
 <div class="group relative my-4 rounded-lg">
@@ -64,7 +83,7 @@
 		</div>
 	</div>
 	<pre class="scrollbar-custom overflow-auto px-5 font-mono transition-[height]"><code
-			><!-- eslint-disable svelte/no-at-html-tags -->{@html DOMPurify.sanitize(code)}</code
+			><!-- eslint-disable svelte/no-at-html-tags -->{@html sanitizedCode}</code
 		></pre>
 
 	{#if previewOpen}

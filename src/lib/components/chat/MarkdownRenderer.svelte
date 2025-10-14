@@ -5,9 +5,10 @@
 	import type { IncomingMessage, OutgoingMessage } from "$lib/workers/markdownWorker";
 	import { browser } from "$app/environment";
 
-	import DOMPurify from "isomorphic-dompurify";
 	import { onMount } from "svelte";
 	import { updateDebouncer } from "$lib/utils/updates";
+
+	let DOMPurify: typeof import("isomorphic-dompurify").default | null = null;
 
 	interface Props {
 		content: string;
@@ -55,7 +56,7 @@
 					async (tokens) =>
 						await Promise.all(
 							tokens.map(async (token) => {
-								if (token.type === "text") {
+								if (token.type === "text" && DOMPurify) {
 									token.html = DOMPurify.sanitize(await token.html);
 								}
 								return token;
@@ -68,9 +69,13 @@
 		}
 	});
 
-	onMount(() => {
+	onMount(async () => {
 		// todo: fix worker, seems to be transmitting a lot of data
 		// worker = browser && window.Worker ? new MarkdownWorker() : null;
+
+		// Dynamically import DOMPurify only on the client
+		const { default: purify } = await import("isomorphic-dompurify");
+		DOMPurify = purify;
 
 		DOMPurify.addHook("afterSanitizeAttributes", (node) => {
 			if (node.tagName === "A") {

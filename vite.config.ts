@@ -38,15 +38,6 @@ export default defineConfig({
 	optimizeDeps: {
 		include: ["uuid", "sharp", "@gradio/client", "clsx"],
 	},
-	ssr: {
-		noExternal: [
-			"isomorphic-dompurify",
-			"dompurify",
-			"@asamuzakjp/css-color",
-			"@asamuzakjp/dom-selector",
-		],
-		external: ["jsdom"],
-	},
 	test: {
 		workspace: [
 			{
