@@ -1,4 +1,12 @@
-# Chat UI
+---
+title: Plurality
+emoji: 💬
+sdk: docker
+app_port: 3000
+colorFrom: blue
+colorTo: gray
+pinned: false
+---
 
 ![Chat UI repository thumbnail](https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/chat-ui/chat-ui-2026.png)
 
