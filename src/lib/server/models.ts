@@ -193,6 +193,25 @@ if (openaiBaseUrl) {
 	throw new Error("OPENAI_BASE_URL not set");
 }
 
+// Filter available models
+const allowedModelsEnv = (config.ALLOWED_MODELS || "").trim();
+
+if (allowedModelsEnv) {
+	const allowedModelIds = allowedModelsEnv
+		.split(",")
+		.map((id) => id.trim())
+		.filter(Boolean);
+	const allowedSet = new Set(allowedModelIds);
+
+	const beforeCount = modelsRaw.length;
+	modelsRaw = modelsRaw.filter((model) => allowedSet.has(model.id ?? model.name));
+
+	logger.info(
+		{ filtered: beforeCount - modelsRaw.length, allowed: modelsRaw.length },
+		"[models] Filtered models"
+	);
+}
+
 let modelOverrides: ModelOverride[] = [];
 const overridesEnv = (Reflect.get(config, "MODELS") as string | undefined) ?? "";
 
