@@ -26,7 +26,7 @@
 
 		<div class="flex w-full flex-col items-center gap-4 pt-4">
 			<button
-				onclick={() => (onClose(), goto(`${base}/models`))}
+				onclick={() => (onClose(), goto(`${base}/settings/models`))}
 				class="flex w-full flex-wrap items-center justify-center whitespace-nowrap rounded-full border-2 border-black bg-black px-5 py-2 text-lg font-semibold text-gray-100 transition-colors hover:bg-gray-900"
 			>
 				See all available models

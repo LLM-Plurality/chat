@@ -75,6 +75,18 @@
 
 	const nModels: number = page.data.models.filter((el: Model) => !el.unlisted).length;
 	let nPersonas = $derived($settings.personas.length);
+	
+	// Route to first active persona or first persona
+	let personasRoute = $derived.by(() => {
+		const targetId = $settings.activePersonas[0] || $settings.personas[0]?.id || '';
+		return `${base}/settings/personas/${targetId}`;
+	});
+	
+	// Route to active model or first model
+	let modelsRoute = $derived.by(() => {
+		const targetId = $settings.activeModel || page.data.models[0]?.id || '';
+		return `${base}/settings/models/${targetId}`;
+	});
 
 	async function handleVisible() {
 		p++;
@@ -180,7 +192,7 @@
 		</a>
 	{/if} -->
 	<a
-		href="{base}/models"
+		href={modelsRoute}
 		class="flex h-9 flex-none items-center gap-1.5 rounded-lg pl-2.5 pr-2 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
 	>
 		Models
@@ -191,7 +203,7 @@
 	</a>
 
 	<a
-		href="{base}/personas"
+		href={personasRoute}
 		class="flex h-9 flex-none items-center gap-1.5 rounded-lg pl-2.5 pr-2 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
 	>
 		Personas
