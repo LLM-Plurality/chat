@@ -11,6 +11,8 @@ export interface Persona {
 	politicalLeanings?: string; // Optional: political orientation
 	geographicContext?: string; // Optional: geographic setting
 	isDefault: boolean; // True for built-in personas
+	locked?: boolean; // True for personas that cannot be edited
+	archived?: boolean; // True when persona is hidden from UI but kept for history
 	createdAt: Date;
 	updatedAt: Date;
 }
