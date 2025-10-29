@@ -15,6 +15,8 @@ export const DEFAULT_PERSONAS: Omit<Persona, "createdAt" | "updatedAt">[] = [
 		politicalLeanings: "Liberal/Progressive",
 		geographicContext: "Urban",
 		isDefault: true,
+		locked: true,
+		archived: false,
 	},
 	{
 		id: "mayor-david-chen",
@@ -30,6 +32,8 @@ export const DEFAULT_PERSONAS: Omit<Persona, "createdAt" | "updatedAt">[] = [
 		politicalLeanings: "Moderate/Centrist",
 		geographicContext: "Urban or Suburban",
 		isDefault: true,
+		locked: true,
+		archived: false,
 	},
 	{
 		id: "dr-evelyn-reed",
@@ -45,6 +49,8 @@ export const DEFAULT_PERSONAS: Omit<Persona, "createdAt" | "updatedAt">[] = [
 		politicalLeanings: "Conservative/Libertarian",
 		geographicContext: "Urban/Suburban",
 		isDefault: true,
+		locked: true,
+		archived: false,
 	},
 	{
 		id: "mr-ben-carter",
@@ -60,5 +66,7 @@ export const DEFAULT_PERSONAS: Omit<Persona, "createdAt" | "updatedAt">[] = [
 		politicalLeanings: "Moderate/Non-Affiliated",
 		geographicContext: "Suburban",
 		isDefault: true,
+		locked: true,
+		archived: false,
 	},
 ];
