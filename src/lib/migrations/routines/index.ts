@@ -11,7 +11,6 @@ import deleteEmptyConversations from "./09-delete-empty-conversations";
 import updateReportsAssistantId from "./10-update-reports-assistantid";
 import addPersonas from "./11-add-personas";
 import addLockedFieldToPersonas from "./12-add-locked-field-to-personas";
-import addBranchingFields from "./13-add-branching-fields";
 
 export interface Migration {
 	_id: ObjectId;
@@ -34,5 +33,4 @@ export const migrations: Migration[] = [
 	updateReportsAssistantId,
 	addPersonas,
 	addLockedFieldToPersonas,
-	addBranchingFields,
 ];
