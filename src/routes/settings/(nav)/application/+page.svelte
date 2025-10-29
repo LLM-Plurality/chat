@@ -1,6 +1,5 @@
 <script lang="ts">
 	import CarbonTrashCan from "~icons/carbon/trash-can";
-	import CarbonArrowUpRight from "~icons/carbon/arrow-up-right";
 
 	import { useSettingsStore } from "$lib/stores/settings";
 	import Switch from "$lib/components/Switch.svelte";
@@ -34,43 +33,6 @@
 </script>
 
 <div class="flex w-full flex-col gap-4">
-	<h2 class="text-center text-lg font-semibold text-gray-800 dark:text-gray-200 md:text-left">
-		Application Settings
-	</h2>
-
-	{#if OPENAI_BASE_URL !== null}
-		<div
-			class="mt-1 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-[12px] text-gray-700 dark:border-gray-700 dark:bg-gray-700/80 dark:text-gray-300"
-		>
-			<span class="font-medium">API Base URL:</span>
-			<code class="ml-1 break-all font-mono text-[12px] text-gray-800 dark:text-gray-100"
-				>{OPENAI_BASE_URL}</code
-			>
-		</div>
-	{/if}
-	{#if !!publicConfig.PUBLIC_COMMIT_SHA}
-		<div
-			class="flex flex-col items-start justify-between text-xl font-semibold text-gray-800 dark:text-gray-200"
-		>
-			<a
-				href={`https://github.com/huggingface/chat-ui/commit/${publicConfig.PUBLIC_COMMIT_SHA}`}
-				target="_blank"
-				rel="noreferrer"
-				class="text-sm font-light text-gray-500 dark:text-gray-400"
-			>
-				Latest deployment <span class="gap-2 font-mono"
-					>{publicConfig.PUBLIC_COMMIT_SHA.slice(0, 7)}</span
-				>
-			</a>
-		</div>
-	{/if}
-	{#if page.data.isAdmin}
-		<p
-			class="rounded-md bg-red-50 px-2 py-1 text-xs font-medium text-red-700 dark:bg-red-500/10 dark:text-red-300"
-		>
-			Admin mode
-		</p>
-	{/if}
 	<div class="flex h-full flex-col gap-4 max-sm:pt-0">
 		<div
 			class="rounded-xl border border-gray-200 bg-white px-3 shadow-sm dark:border-gray-700 dark:bg-gray-800"
@@ -166,43 +128,67 @@
 						</button>
 					</div>
 				</div>
+
+				<!-- Delete all conversations -->
+				<div class="flex items-start justify-between py-3">
+					<div>
+						<div class="text-[13px] font-medium text-gray-800 dark:text-gray-200">
+							Delete all conversations
+						</div>
+						<p class="text-[12px] text-gray-500 dark:text-gray-400">
+							Permanently remove all chat history.
+						</p>
+					</div>
+					<button
+						onclick={async (e) => {
+							e.preventDefault();
+
+							confirm("Are you sure you want to delete all conversations?") &&
+								client.conversations
+									.delete()
+									.then(async () => {
+										await goto(`${base}/`, { invalidateAll: true });
+									})
+									.catch((err) => {
+										console.error(err);
+										$error = err.message;
+									});
+						}}
+						type="button"
+						class="inline-flex items-center rounded-full border border-red-200 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-900/20"
+					>
+						<CarbonTrashCan class="mr-1.5 shrink-0 text-xs" />
+						Delete all
+					</button>
+				</div>
 			</div>
 		</div>
 
-		<div class="mt-6 flex flex-col gap-2 text-[13px]">
-			<a
-				href="https://huggingface.co/spaces/huggingchat/chat-ui/discussions"
-				target="_blank"
-				rel="noreferrer"
-				class="flex items-center underline decoration-gray-300 underline-offset-2 hover:decoration-gray-700 dark:decoration-gray-700 dark:hover:decoration-gray-400"
-				><CarbonArrowUpRight class="mr-1.5 shrink-0 text-sm " /> Share your feedback on HuggingChat</a
-			>
-			{#if publicConfig.isHuggingChat}
-				<a
-					href="{base}/privacy"
-					class="flex items-center underline decoration-gray-300 underline-offset-2 hover:decoration-gray-700 dark:decoration-gray-700 dark:hover:decoration-gray-400"
-					><CarbonArrowUpRight class="mr-1.5 shrink-0 text-sm " /> About & Privacy</a
-				>
-			{/if}
-			<button
-				onclick={async (e) => {
-					e.preventDefault();
-
-					confirm("Are you sure you want to delete all conversations?") &&
-						client.conversations
-							.delete()
-							.then(async () => {
-								await goto(`${base}/`, { invalidateAll: true });
-							})
-							.catch((err) => {
-								console.error(err);
-								$error = err.message;
-							});
-				}}
-				type="submit"
-				class="flex items-center underline decoration-red-200 underline-offset-2 hover:decoration-red-500 dark:decoration-red-900 dark:hover:decoration-red-700"
-				><CarbonTrashCan class="mr-2 inline text-sm text-red-500" />Delete all conversations</button
+	{#if OPENAI_BASE_URL !== null}
+		<div
+			class="mt-1 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-[12px] text-gray-700 dark:border-gray-700 dark:bg-gray-700/80 dark:text-gray-300"
+		>
+			<span class="font-medium">API Base URL:</span>
+			<code class="ml-1 break-all font-mono text-[12px] text-gray-800 dark:text-gray-100"
+				>{OPENAI_BASE_URL}</code
 			>
 		</div>
+	{/if}
+	{#if !!publicConfig.PUBLIC_COMMIT_SHA}
+		<div
+			class="flex flex-col items-start justify-between text-xl font-semibold text-gray-800 dark:text-gray-200"
+		>
+			<a
+				href={`https://github.com/huggingface/chat-ui/commit/${publicConfig.PUBLIC_COMMIT_SHA}`}
+				target="_blank"
+				rel="noreferrer"
+				class="text-sm font-light text-gray-500 dark:text-gray-400"
+			>
+				Latest deployment <span class="gap-2 font-mono"
+					>{publicConfig.PUBLIC_COMMIT_SHA.slice(0, 7)}</span
+				>
+			</a>
+		</div>
+	{/if}
 	</div>
 </div>

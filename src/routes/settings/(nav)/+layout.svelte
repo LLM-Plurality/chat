@@ -25,6 +25,7 @@
 
 	let previousPage: string = $state(base || "/");
 	let showContent: boolean = $state(false);
+	let isCurrentlyDesktop: boolean = $state(browser && isDesktop(window));
 
 	let navContainer: HTMLDivElement | undefined = $state();
 
@@ -57,12 +58,32 @@
 	}
 
 	function checkDesktopRedirect() {
-		if (
-			browser &&
-			isDesktop(window) &&
-			page.url.pathname === `${base}/settings`
-		) {
-			goto(`${base}/settings/application`);
+		if (!browser || !isDesktop(window)) return;
+
+		const pathname = page.url.pathname;
+
+		// Root settings redirect to application
+		if (pathname === `${base}/settings`) {
+			goto(`${base}/settings/application`, { replaceState: true });
+			return;
+		}
+
+		// If on models list page, redirect to active model detail
+		if (pathname === `${base}/settings/models`) {
+			const targetId = $settings.activeModel || data.models?.[0]?.id || "";
+			if (targetId) {
+				goto(`${base}/settings/models/${targetId}`, { replaceState: true });
+			}
+			return;
+		}
+
+		// If on personas list page, redirect to first active persona detail
+		if (pathname === `${base}/settings/personas`) {
+			const targetId = $settings.activePersonas[0] || $settings.personas?.[0]?.id || "";
+			if (targetId) {
+				goto(`${base}/settings/personas/${targetId}`, { replaceState: true });
+			}
+			return;
 		}
 	}
 
@@ -83,17 +104,23 @@
 	onMount(() => {
 		// Show content based on current path
 		showContent = shouldShowContent(page.url.pathname);
+		// Initial desktop state
+		isCurrentlyDesktop = isDesktop(window);
 		// Initial desktop redirect check
 		checkDesktopRedirect();
 
 		// Ensure the selected item is visible in the nav
 		void scrollSelectedItemIntoView();
 
-		// Add resize listener for desktop redirect
+		// Add resize listener for viewport changes
 		if (browser) {
-			const debouncedCheck = debounce(checkDesktopRedirect, 100);
-			window.addEventListener("resize", debouncedCheck);
-			return () => window.removeEventListener("resize", debouncedCheck);
+			const handleResize = () => {
+				isCurrentlyDesktop = isDesktop(window);
+				checkDesktopRedirect();
+			};
+			const debouncedResize = debounce(handleResize, 100);
+			window.addEventListener("resize", debouncedResize);
+			return () => window.removeEventListener("resize", debouncedResize);
 		}
 	});
 
@@ -132,9 +159,15 @@
 		const newPersona: Persona = {
 			id: v4(),
 			name: "New Persona",
-			occupation: "",
+			age: "26-35",
+			gender: "Prefer not to say",
+			jobSector: "",
 			stance: "",
-			prompt: "",
+			communicationStyle: "",
+			goalInDebate: "",
+			incomeBracket: "",
+			politicalLeanings: "",
+			geographicContext: "",
 			isDefault: false,
 			createdAt: new Date(),
 			updatedAt: new Date(),
@@ -166,7 +199,7 @@
 >
 	<div class="col-span-1 mb-3 flex flex-col gap-3 md:col-span-3 md:mb-4">
 		<div class="flex items-center justify-between">
-			{#if browser && !isDesktop(window)}
+			{#if browser && !isCurrentlyDesktop}
 				{#if showContent && (activeTab === 'models' || activeTab === 'personas')}
 					<!-- Detail view: show only back button -->
 					<button
@@ -199,8 +232,8 @@
 					</button>
 				{/if}
 			{/if}
-			<h2 class="left-0 right-0 mx-auto w-fit text-center text-xl font-bold md:hidden">Settings</h2>
-			{#if browser && isDesktop(window)}
+			<h2 class="left-0 right-0 mx-auto w-fit text-center text-xl font-bold">Settings</h2>
+			{#if browser && isCurrentlyDesktop}
 				<!-- Desktop: always show X button on the right -->
 				<button
 					class="btn rounded-lg"
@@ -220,17 +253,17 @@
 		</div>
 		
 		<!-- Tab Navigation -->
-		<div class="flex gap-2 border-b border-gray-200 dark:border-gray-700" class:max-md:hidden={showContent && browser}>
+		<div class="flex gap-2 border-b border-gray-200 dark:border-gray-700" class:max-md:hidden={showContent && browser && (activeTab === 'models' || activeTab === 'personas')}>
 			<button
 				class="px-4 py-2 text-sm font-medium border-b-2 transition-colors {activeTab === 'models'
 					? 'border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400'
 					: 'border-transparent text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'}"
 				onclick={() => {
-					// On mobile list view, go to list; otherwise go to active item detail
-					if (browser && !isDesktop(window) && !showContent) {
+					// On mobile: go to list if coming from list or application page
+					if (browser && !isCurrentlyDesktop && (activeTab === 'application' || !showContent)) {
 						goto(`${base}/settings/models`);
 					} else {
-						goto(`${base}/settings/models/${$settings.activeModel || data.models[0]?.id || ''}`);
+						goto(`${base}/settings/models/${$settings.activeModel || data.models?.[0]?.id || ''}`);
 					}
 				}}
 			>
@@ -241,8 +274,8 @@
 					? 'border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400'
 					: 'border-transparent text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'}"
 				onclick={() => {
-					// On mobile list view, go to list; otherwise go to active item detail
-					if (browser && !isDesktop(window) && !showContent) {
+					// On mobile: go to list if coming from list or application page
+					if (browser && !isCurrentlyDesktop && (activeTab === 'application' || !showContent)) {
 						goto(`${base}/settings/personas`);
 					} else {
 						goto(`${base}/settings/personas/${$settings.activePersonas[0] || $settings.personas[0]?.id || ''}`);
@@ -257,11 +290,11 @@
 					: 'border-transparent text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'}"
 				onclick={() => goto(`${base}/settings/application`)}
 			>
-				Settings
+				Application
 			</button>
 		</div>
 	</div>
-	{#if !(showContent && browser && !isDesktop(window)) && activeTab === 'models'}
+	{#if !(showContent && browser && !isCurrentlyDesktop) && activeTab === 'models'}
 		<div
 			class="scrollbar-custom col-span-1 flex flex-col overflow-y-auto whitespace-nowrap rounded-r-xl bg-gradient-to-l from-gray-50 to-10% dark:from-gray-700/40 max-md:-mx-4 max-md:h-full md:pr-6"
 			class:max-md:hidden={showContent && browser}
@@ -323,7 +356,7 @@
 			{/each}
 		</div>
 	{/if}
-	{#if !(showContent && browser && !isDesktop(window)) && activeTab === 'personas'}
+	{#if !(showContent && browser && !isCurrentlyDesktop) && activeTab === 'personas'}
 		<div
 			class="scrollbar-custom col-span-1 flex flex-col overflow-y-auto whitespace-nowrap rounded-r-xl bg-gradient-to-l from-gray-50 to-10% dark:from-gray-700/40 max-md:-mx-4 max-md:h-full md:pr-6"
 			class:max-md:hidden={showContent && browser}
@@ -340,11 +373,11 @@
 				/>
 			</div>
 
-			{#each $settings.personas
-				.filter((persona) => {
-					const haystack = normalize(`${persona.name} ${persona.occupation ?? ""} ${persona.stance ?? ""}`);
-					return personaQueryTokens.every((q) => haystack.includes(q));
-				}) as persona (persona.id)}
+		{#each $settings.personas
+			.filter((persona) => {
+				const haystack = normalize(`${persona.name} ${persona.jobSector ?? ""} ${persona.stance ?? ""}`);
+				return personaQueryTokens.every((q) => haystack.includes(q));
+			}) as persona (persona.id)}
 				<button
 					type="button"
 					onclick={() => goto(`${base}/settings/personas/${persona.id}`)}
@@ -361,9 +394,13 @@
 						<span class="truncate">{persona.name}</span>
 					</div>
 
-					{#if $settings.activePersonas.includes(persona.id)}
-						<div class="size-2 rounded-full bg-black dark:bg-white" title="Active persona"></div>
-					{/if}
+				{#if $settings.activePersonas.includes(persona.id)}
+					<div
+						class="flex h-[21px] items-center rounded-md bg-black/90 px-2 text-[11px] font-semibold leading-none text-white dark:bg-white dark:text-black"
+					>
+						Active
+					</div>
+				{/if}
 				</button>
 			{/each}
 
@@ -380,7 +417,6 @@
 	{#if showContent}
 		<div
 			class="scrollbar-custom col-span-1 w-full overflow-y-auto overflow-x-clip px-1 {activeTab === 'models' || activeTab === 'personas' ? 'md:col-span-2' : 'md:col-span-3'} md:row-span-2"
-			class:max-md:hidden={!showContent && browser}
 		>
 			{@render children?.()}
 		</div>
