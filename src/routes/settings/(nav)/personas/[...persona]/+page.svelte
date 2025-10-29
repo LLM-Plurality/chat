@@ -58,7 +58,7 @@
 		}
 	}
 
-	function deletePersona() {
+	async function deletePersona() {
 		if (!selectedPersona) return;
 
 		// Can't delete if it's locked
@@ -84,23 +84,42 @@
 				`Are you sure you want to remove "${selectedPersona.name}"? Past responses will continue to show their persona details, but this persona will be hidden from future use.`
 			)
 		) {
-			const remainingPersona = $settings.personas.find(
-				(persona) => !persona.archived && persona.id !== selectedPersona.id
-			);
+			try {
+				const usageResponse = await fetch(
+					`${base}/api/personas/${selectedPersona.id}/usage`
+				);
 
-			$settings.personas = $settings.personas.map((persona) =>
-				persona.id === selectedPersona.id
-					? { ...persona, archived: true, updatedAt: new Date() }
-					: persona
-			);
+				if (!usageResponse.ok) {
+					alert("Unable to delete persona right now. Please try again later.");
+					return;
+				}
 
-			const filteredActive = $settings.activePersonas.filter((id) => id !== selectedPersona.id);
-			if (filteredActive.length !== $settings.activePersonas.length) {
-				void settings.instantSet({ activePersonas: filteredActive });
+				const { used } = (await usageResponse.json()) as { used: boolean };
+				const now = new Date();
+				const filteredActive = $settings.activePersonas.filter((id) => id !== selectedPersona.id);
+				const updatedPersonas = used
+					? $settings.personas.map((persona) =>
+							persona.id === selectedPersona.id
+								? { ...persona, archived: true, updatedAt: now }
+								: persona
+					  )
+					: $settings.personas.filter((persona) => persona.id !== selectedPersona.id);
+
+				await settings.instantSet({
+					personas: updatedPersonas,
+					activePersonas: filteredActive,
+				});
+
+				const nextCandidate = updatedPersonas.find(
+					(persona) => !persona.archived && persona.id !== selectedPersona.id
+				);
+				const fallbackPersona = updatedPersonas.find((persona) => !persona.archived)?.id ?? "";
+				const targetId = nextCandidate?.id ?? fallbackPersona;
+				goto(`${base}/settings/personas/${targetId}`);
+			} catch (error) {
+				console.error("Failed to delete persona", error);
+				alert("Unable to delete persona right now. Please try again later.");
 			}
-
-			const targetId = remainingPersona?.id ?? $settings.personas.find((p) => !p.archived)?.id ?? "";
-			goto(`${base}/settings/personas/${targetId}`);
 		}
 	}
 
