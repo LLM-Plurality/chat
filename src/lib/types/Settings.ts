@@ -42,6 +42,7 @@ export const DEFAULT_SETTINGS = {
 	activePersonas: ["dr-robert-zane", "mayor-david-chen"], // Default personas (can have multiple)
 	personas: DEFAULT_PERSONAS.map((p) => ({
 		...p,
+		archived: p.archived ?? false,
 		createdAt: new Date(),
 		updatedAt: new Date(),
 	})),
