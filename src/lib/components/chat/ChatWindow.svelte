@@ -46,6 +46,7 @@
 		models: Model[];
 		preprompt?: string | undefined;
 		personaId?: string;
+		lockedPersonaId?: string;
 		files?: File[];
 		onmessage?: (content: string) => void;
 		onstop?: () => void;
@@ -64,6 +65,7 @@
 		models,
 		preprompt = undefined,
 		personaId,
+		lockedPersonaId,
 		files = $bindable([]),
 		onmessage,
 		onstop,
@@ -356,20 +358,20 @@
 			{#if messages.length > 0}
 				<div class="flex h-max flex-col gap-8 pb-52">
 					{#each messages as message, idx (message.id)}
-						<ChatMessage
-							{loading}
-							{message}
-							alternatives={messagesAlternatives.find((a) => a.includes(message.id)) ?? []}
-							isAuthor={!shared}
-							readOnly={isReadOnly}
-							isLast={idx === messages.length - 1}
-							personaName={message.from === "assistant" && !message.personaResponses ? persona?.name : undefined}
-							personaOccupation={message.from === "assistant" && !message.personaResponses ? persona?.occupation : undefined}
-							personaStance={message.from === "assistant" && !message.personaResponses ? persona?.stance : undefined}
-							bind:editMsdgId
-							onretry={(payload) => onretry?.(payload)}
-							onshowAlternateMsg={(payload) => onshowAlternateMsg?.(payload)}
-						/>
+					<ChatMessage
+						{loading}
+						{message}
+						alternatives={messagesAlternatives.find((a) => a.includes(message.id)) ?? []}
+						isAuthor={!shared}
+						readOnly={isReadOnly}
+						isLast={idx === messages.length - 1}
+						personaName={message.from === "assistant" && !message.personaResponses ? persona?.name : undefined}
+						personaOccupation={message.from === "assistant" && !message.personaResponses ? persona?.jobSector : undefined}
+						personaStance={message.from === "assistant" && !message.personaResponses ? persona?.stance : undefined}
+						bind:editMsdgId
+						onretry={(payload) => onretry?.(payload)}
+						onshowAlternateMsg={(payload) => onshowAlternateMsg?.(payload)}
+					/>
 					{/each}
 					{#if isReadOnly}
 						<ModelSwitch {models} {currentModel} />
@@ -492,7 +494,7 @@
 					"max-sm:hidden": focused && isVirtualKeyboard(),
 				}}
 			>
-				<PersonaSelector />
+				<PersonaSelector {lockedPersonaId} />
 				{#if models.find((m) => m.id === currentModel.id)}
                     {#if !currentModel.isRouter || !loading}
                         <a
