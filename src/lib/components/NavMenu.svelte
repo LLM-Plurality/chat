@@ -74,11 +74,12 @@
 	});
 
 	const nModels: number = page.data.models.filter((el: Model) => !el.unlisted).length;
-	let nPersonas = $derived($settings.personas.length);
+	let nPersonas = $derived($settings.personas.filter((persona) => !persona.archived).length);
 	
-	// Route to first active persona or first persona
+	// Route to first active persona or first non-archived persona
 	let personasRoute = $derived.by(() => {
-		const targetId = $settings.activePersonas[0] || $settings.personas[0]?.id || '';
+		const availablePersonas = $settings.personas.filter((persona) => !persona.archived);
+		const targetId = $settings.activePersonas[0] || availablePersonas[0]?.id || '';
 		return `${base}/settings/personas/${targetId}`;
 	});
 	
