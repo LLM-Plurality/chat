@@ -466,8 +466,8 @@ export async function POST({ request, locals, params, getClientAddress }) {
 
 			// Get all active personas
 			const activePersonas = activePersonaIds
-				.map((id) => userSettings?.personas?.find((p) => p.id === id))
-				.filter((p): p is import("$lib/types/Persona").Persona => p !== undefined);
+				.map((id) => userSettings?.personas?.find((p) => p.id === id && !p.archived))
+				.filter((p): p is import("$lib/types/Persona").Persona => p !== undefined && !p.archived);
 
 			// Determine if we should use multi-persona mode
 			const useMultiPersona = activePersonas.length > 1;
