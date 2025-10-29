@@ -8,6 +8,7 @@
 	import CarbonClose from "~icons/carbon/close";
 	import CarbonChevronLeft from "~icons/carbon/chevron-left";
 	import CarbonView from "~icons/carbon/view";
+	import CarbonLocked from "~icons/carbon/locked";
 
 	import type { LayoutData } from "../$types";
 	import { browser } from "$app/environment";
@@ -79,7 +80,7 @@
 
 		// If on personas list page, redirect to first active persona detail
 		if (pathname === `${base}/settings/personas`) {
-			const targetId = $settings.activePersonas[0] || $settings.personas?.[0]?.id || "";
+		const targetId = firstActivePersonaId ?? firstNonArchivedPersonaId ?? "";
 			if (targetId) {
 				goto(`${base}/settings/personas/${targetId}`, { replaceState: true });
 			}
@@ -138,6 +139,19 @@
 
 	const settings = useSettingsStore();
 
+	$effect(() => {
+		const archivedIds = new Set(
+			$settings.personas.filter((persona) => persona.archived).map((persona) => persona.id)
+		);
+		if (archivedIds.size === 0) {
+			return;
+		}
+		const filteredActive = $settings.activePersonas.filter((id) => !archivedIds.has(id));
+		if (filteredActive.length !== $settings.activePersonas.length) {
+			void settings.instantSet({ activePersonas: filteredActive });
+		}
+	});
+
 	// Local filter for model list (hyphen/space insensitive)
 	let modelFilter = $state("");
 	const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ");
@@ -155,11 +169,19 @@
 		return "models"; // default
 	});
 
+let firstActivePersonaId = $derived(() =>
+	$settings.activePersonas.find((id) => !$settings.personas.find((p) => p.id === id)?.archived) ?? null
+);
+
+let firstNonArchivedPersonaId = $derived(() =>
+	$settings.personas.find((persona) => !persona.archived)?.id ?? null
+);
+
 	function createNewPersona() {
 		const newPersona: Persona = {
 			id: v4(),
 			name: "New Persona",
-			age: "26-35",
+			age: "18-25",
 			gender: "Prefer not to say",
 			jobSector: "",
 			stance: "",
@@ -169,6 +191,7 @@
 			politicalLeanings: "",
 			geographicContext: "",
 			isDefault: false,
+			archived: false,
 			createdAt: new Date(),
 			updatedAt: new Date(),
 		};
@@ -278,7 +301,8 @@
 					if (browser && !isCurrentlyDesktop && (activeTab === 'application' || !showContent)) {
 						goto(`${base}/settings/personas`);
 					} else {
-						goto(`${base}/settings/personas/${$settings.activePersonas[0] || $settings.personas[0]?.id || ''}`);
+				const targetId = firstActivePersonaId ?? firstNonArchivedPersonaId ?? "";
+				goto(`${base}/settings/personas/${targetId}`);
 					}
 				}}
 			>
@@ -374,6 +398,7 @@
 			</div>
 
 		{#each $settings.personas
+			.filter((persona) => !persona.archived)
 			.filter((persona) => {
 				const haystack = normalize(`${persona.name} ${persona.jobSector ?? ""} ${persona.stance ?? ""}`);
 				return personaQueryTokens.every((q) => haystack.includes(q));
@@ -390,17 +415,28 @@
 					aria-label="Select {persona.name}"
 					title="Double-click to activate"
 				>
-					<div class="mr-auto flex items-center gap-1 truncate">
-						<span class="truncate">{persona.name}</span>
-					</div>
+				<div class="mr-auto flex items-center gap-1 truncate">
+					<span class="truncate">{persona.name}</span>
+				</div>
 
-				{#if $settings.activePersonas.includes(persona.id)}
-					<div
-						class="flex h-[21px] items-center rounded-md bg-black/90 px-2 text-[11px] font-semibold leading-none text-white dark:bg-white dark:text-black"
+				{#if persona.locked}
+					<span
+						title="This persona is locked and cannot be edited"
+						class="grid size-[21px] flex-none place-items-center rounded-md border border-amber-700 dark:border-amber-500"
+						aria-label="Persona is locked"
+						role="img"
 					>
-						Active
-					</div>
+						<CarbonLocked class="text-xxs text-amber-700 dark:text-amber-500" />
+					</span>
 				{/if}
+
+			{#if $settings.activePersonas.includes(persona.id)}
+				<div
+					class="flex h-[21px] items-center rounded-md bg-black/90 px-2 text-[11px] font-semibold leading-none text-white dark:bg-white dark:text-black"
+				>
+					Active
+				</div>
+			{/if}
 				</button>
 			{/each}
 
