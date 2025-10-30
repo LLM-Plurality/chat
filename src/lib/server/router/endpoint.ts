@@ -5,7 +5,7 @@ import type {
 	TextGenerationStreamOutputSimplified,
 } from "../endpoints/endpoints";
 import endpoints from "../endpoints/endpoints";
-import type { ProcessedModel } from "../models";
+import type { ProcessedModel, EndpointOptions } from "../models";
 import { config } from "$lib/server/config";
 import { logger } from "$lib/server/logger";
 import { archSelectRoute } from "./arch";
@@ -35,7 +35,10 @@ function stripReasoningFromMessage(message: EndpointMessage): EndpointMessage {
  * Create an Endpoint that performs route selection via Arch and then forwards
  * to the selected model (with fallbacks) using the OpenAI-compatible endpoint.
  */
-export async function makeRouterEndpoint(routerModel: ProcessedModel): Promise<Endpoint> {
+export async function makeRouterEndpoint(
+	routerModel: ProcessedModel,
+	options?: EndpointOptions
+): Promise<Endpoint> {
 	return async function routerEndpoint(params: EndpointParameters) {
 		const routes = await getRoutes();
 		const sanitizedMessages = params.messages.map(stripReasoningFromMessage);
@@ -69,10 +72,12 @@ export async function makeRouterEndpoint(routerModel: ProcessedModel): Promise<E
 				} as ProcessedModel;
 			}
 
+			const defaultApiKey = config.OPENAI_API_KEY || config.HF_TOKEN || "sk-";
+
 			return endpoints.openai({
 				type: "openai",
 				baseURL: (config.OPENAI_BASE_URL || "https://router.huggingface.co/v1").replace(/\/$/, ""),
-				apiKey: config.OPENAI_API_KEY || config.HF_TOKEN || "sk-",
+				apiKey: options?.apiKey ?? defaultApiKey,
 				model: modelForCall,
 				// Ensure streaming path is used
 				streamingSupported: true,
@@ -133,7 +138,7 @@ export async function makeRouterEndpoint(routerModel: ProcessedModel): Promise<E
 			}
 		}
 
-		const { routeName } = await archSelectRoute(sanitizedMessages);
+		const { routeName } = await archSelectRoute(sanitizedMessages, { apiKey: options?.apiKey });
 
 		const fallbackModel = config.LLM_ROUTER_FALLBACK_MODEL || routerModel.id;
 		const { candidates } = resolveRouteModels(routeName, routes, fallbackModel);
