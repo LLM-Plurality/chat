@@ -4,6 +4,7 @@ import { logger } from "$lib/server/logger";
 import { MessageUpdateType, type MessageUpdate } from "$lib/types/MessageUpdate";
 import type { Conversation } from "$lib/types/Conversation";
 import { getReturnFromGenerator } from "$lib/utils/getReturnFromGenerator";
+import { stripThinkBlocks } from "$lib/utils/stripThinkBlocks";
 
 export async function* generateTitleForConversation(
 	conv: Conversation
@@ -19,7 +20,7 @@ export async function* generateTitleForConversation(
 
 		yield {
 			type: MessageUpdateType.Title,
-			title,
+			title: stripThinkBlocks(title).trim() || "New Chat",
 		};
 	} catch (cause) {
 		logger.error(Error("Failed whilte generating title for conversation", { cause }));
@@ -29,7 +30,9 @@ export async function* generateTitleForConversation(
 export async function generateTitle(prompt: string, modelId?: string) {
 	if (config.LLM_SUMMARIZATION !== "true") {
 		// When summarization is disabled, use the first five words without adding emojis
-		return prompt.split(/\s+/g).slice(0, 5).join(" ");
+		const firstFive = prompt.split(/\s+/g).slice(0, 5).join(" ");
+		const stripped = stripThinkBlocks(firstFive).trim();
+		return stripped || firstFive;
 	}
 
 	// Tools removed: no tool-based title path
@@ -52,13 +55,13 @@ Return ONLY the title text.`,
 	)
 		.then((summary) => {
 			const firstFive = prompt.split(/\s+/g).slice(0, 5).join(" ");
-			const trimmed = summary.trim();
+			const trimmed = stripThinkBlocks(String(summary ?? "")).trim();
 			// Fallback: if empty, return first five words only (no emoji)
-			return trimmed || firstFive;
+			return trimmed || stripThinkBlocks(firstFive).trim() || firstFive;
 		})
 		.catch((e) => {
 			logger.error(e);
 			const firstFive = prompt.split(/\s+/g).slice(0, 5).join(" ");
-			return firstFive;
+			return stripThinkBlocks(firstFive).trim() || firstFive;
 		});
 }
