@@ -68,8 +68,10 @@ function parseRouteName(text: string): string | undefined {
 
 export async function archSelectRoute(
 	messages: EndpointMessage[],
-	traceId?: string
+	options?: { traceId?: string; apiKey?: string }
 ): Promise<{ routeName: string }> {
+	const traceId = options?.traceId;
+	const apiKeyOverride = options?.apiKey;
 	const routes = await getRoutes();
 	const prompt = toRouterPrompt(messages, routes);
 
@@ -82,7 +84,7 @@ export async function archSelectRoute(
 	}
 
 	const headers: HeadersInit = {
-		Authorization: `Bearer ${config.OPENAI_API_KEY || config.HF_TOKEN}`,
+		Authorization: `Bearer ${apiKeyOverride ?? (config.OPENAI_API_KEY || config.HF_TOKEN || "")}`,
 		"Content-Type": "application/json",
 	};
 	const body = {
