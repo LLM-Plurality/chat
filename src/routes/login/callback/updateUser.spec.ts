@@ -35,6 +35,8 @@ const insertRandomUser = async () => {
 		name: userData.name,
 		avatarUrl: userData.picture,
 		hfUserId: userData.sub,
+		authProvider: "huggingface",
+		authId: userData.sub,
 	});
 
 	return res.insertedId;
@@ -61,7 +63,12 @@ describe("login", () => {
 	it("should update user if existing", async () => {
 		await insertRandomUser();
 
-		await updateUser({ userData, locals, cookies: cookiesMock });
+		await updateUser({
+			userData,
+			locals,
+			cookies: cookiesMock,
+			authProvider: "huggingface",
+		});
 
 		const existingUser = await collections.users.findOne({ hfUserId: userData.sub });
 
@@ -75,7 +82,12 @@ describe("login", () => {
 
 		await insertRandomConversations(2);
 
-		await updateUser({ userData, locals, cookies: cookiesMock });
+		await updateUser({
+			userData,
+			locals,
+			cookies: cookiesMock,
+			authProvider: "huggingface",
+		});
 
 		const conversationCount = await collections.conversations.countDocuments({
 			userId: insertedId,
@@ -87,8 +99,43 @@ describe("login", () => {
 		await collections.conversations.deleteMany({ userId: insertedId });
 	});
 
+	it("stores encrypted hf tokens when provided", async () => {
+		await updateUser({
+			userData,
+			locals,
+			cookies: cookiesMock,
+			authProvider: "huggingface",
+			accessToken: "hf_test_token",
+		});
+
+		const user = await collections.users.findOne({ authId: userData.sub });
+		assert.exists(user);
+
+		const storedToken = await collections.userTokens.findOne({ userId: user?._id });
+		assert.exists(storedToken);
+		assert.equal(storedToken?.provider, "huggingface");
+	});
+
+	it("does not persist tokens when provider is oidc", async () => {
+		await updateUser({
+			userData,
+			locals,
+			cookies: cookiesMock,
+			authProvider: "oidc",
+			accessToken: "oidc-token",
+		});
+
+		const storedToken = await collections.userTokens.findOne({ provider: "huggingface" });
+		assert.equal(storedToken, null);
+	});
+
 	it("should create default settings for new user", async () => {
-		await updateUser({ userData, locals, cookies: cookiesMock });
+		await updateUser({
+			userData,
+			locals,
+			cookies: cookiesMock,
+			authProvider: "huggingface",
+		});
 
 		const user = (await findUser(locals.sessionId)).user;
 
@@ -115,7 +162,12 @@ describe("login", () => {
 			shareConversationsWithModelAuthors: false,
 		});
 
-		await updateUser({ userData, locals, cookies: cookiesMock });
+		await updateUser({
+			userData,
+			locals,
+			cookies: cookiesMock,
+			authProvider: "huggingface",
+		});
 
 		const settings = await collections.settings.findOne({
 			_id: insertedId,
@@ -141,6 +193,7 @@ describe("login", () => {
 afterEach(async () => {
 	await collections.users.deleteMany({ hfUserId: userData.sub });
 	await collections.sessions.deleteMany({});
+	await collections.userTokens.deleteMany({});
 
 	locals.userId = "1234567890";
 	locals.sessionId = "1234567890";
