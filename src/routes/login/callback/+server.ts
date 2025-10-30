@@ -61,11 +61,26 @@ export async function GET({ url, locals, cookies, request, getClientAddress }) {
 		throw error(403, "Invalid or expired CSRF token");
 	}
 
-	const { userData } = await getOIDCUserData(
+	const { token, userData } = await getOIDCUserData(
 		{ redirectURI: validatedToken.redirectUrl },
 		code,
 		iss
 	);
+
+	const tokenIssuer = (() => {
+		if (typeof token.issuer === "string") return token.issuer;
+		const claims = typeof token.claims === "function" ? token.claims() : undefined;
+		if (claims && typeof claims.iss === "string") return claims.iss;
+		if (typeof token.iss === "string") return token.iss;
+		return "";
+	})();
+
+	const issuerCandidate = [iss, tokenIssuer, config.OPENID_PROVIDER_URL]
+		.filter((value): value is string => typeof value === "string")
+		.map((value) => value.toLowerCase())
+		.join(" ");
+
+	const isHuggingFaceProvider = issuerCandidate.includes("huggingface.co");
 
 	// Filter by allowed user emails or domains
 	if (allowedUserEmails.length > 0 || allowedUserDomains.length > 0) {
@@ -92,6 +107,8 @@ export async function GET({ url, locals, cookies, request, getClientAddress }) {
 		cookies,
 		userAgent: request.headers.get("user-agent") ?? undefined,
 		ip: getClientAddress(),
+		authProvider: isHuggingFaceProvider ? "huggingface" : "oidc",
+		accessToken: isHuggingFaceProvider ? (token.access_token ?? undefined) : undefined,
 	});
 
 	return redirect(302, `${base}/`);
