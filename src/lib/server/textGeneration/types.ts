@@ -14,6 +14,8 @@ export interface TextGenerationContext {
 	promptedAt: Date;
 	ip: string;
 	username?: string;
+	/** Optional per-user API key for downstream inference calls */
+	authToken?: string;
 	/** Force-enable multimodal handling for endpoints that support it */
 	forceMultimodal?: boolean;
 }

@@ -7,7 +7,8 @@ import { getReturnFromGenerator } from "$lib/utils/getReturnFromGenerator";
 import { stripThinkBlocks } from "$lib/utils/stripThinkBlocks";
 
 export async function* generateTitleForConversation(
-	conv: Conversation
+	conv: Conversation,
+	opts?: { apiKey?: string }
 ): AsyncGenerator<MessageUpdate, undefined, undefined> {
 	try {
 		const userMessage = conv.messages.find((m) => m.from === "user");
@@ -16,7 +17,8 @@ export async function* generateTitleForConversation(
 
 		const prompt = userMessage.content;
 		const modelForTitle = config.TASK_MODEL?.trim() ? config.TASK_MODEL : conv.model;
-		const title = (await generateTitle(prompt, modelForTitle)) ?? "New Chat";
+		const title =
+			(await generateTitle(prompt, modelForTitle, { apiKey: opts?.apiKey })) ?? "New Chat";
 
 		yield {
 			type: MessageUpdateType.Title,
@@ -27,7 +29,7 @@ export async function* generateTitleForConversation(
 	}
 }
 
-export async function generateTitle(prompt: string, modelId?: string) {
+export async function generateTitle(prompt: string, modelId?: string, opts?: { apiKey?: string }) {
 	if (config.LLM_SUMMARIZATION !== "true") {
 		// When summarization is disabled, use the first five words without adding emojis
 		const firstFive = prompt.split(/\s+/g).slice(0, 5).join(" ");
@@ -51,6 +53,7 @@ Return ONLY the title text.`,
 				max_tokens: 30,
 			},
 			modelId,
+			apiKey: opts?.apiKey,
 		})
 	)
 		.then((summary) => {
