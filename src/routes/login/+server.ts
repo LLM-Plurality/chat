@@ -1,19 +1,10 @@
 import { getOIDCAuthorizationUrl } from "$lib/server/auth";
-import { base } from "$app/paths";
-import { config } from "$lib/server/config";
+import { buildRedirectURI } from "$lib/server/authHelpers";
 
 export async function GET({ request, url, locals }) {
-	const referer = request.headers.get("referer");
-	let redirectURI = `${(referer ? new URL(referer) : url).origin}${base}/login/callback`;
+	const redirectURI = buildRedirectURI(request, url);
 
 	// TODO: Handle errors if provider is not responding
-
-	if (url.searchParams.has("callback")) {
-		const callback = url.searchParams.get("callback") || redirectURI;
-		if (config.ALTERNATIVE_REDIRECT_URLS.includes(callback)) {
-			redirectURI = callback;
-		}
-	}
 
 	const authorizationUrl = await getOIDCAuthorizationUrl(
 		{ redirectURI },
