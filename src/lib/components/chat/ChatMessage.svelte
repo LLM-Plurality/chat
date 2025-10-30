@@ -12,17 +12,18 @@
 	import CarbonPen from "~icons/carbon/pen";
 	import UploadedFile from "./UploadedFile.svelte";
 
-	import {
-		MessageUpdateType,
-		type MessageReasoningUpdate,
-		MessageReasoningUpdateType,
-	} from "$lib/types/MessageUpdate";
+import {
+	MessageUpdateType,
+	type MessageReasoningUpdate,
+	MessageReasoningUpdateType,
+} from "$lib/types/MessageUpdate";
 	import MarkdownRenderer from "./MarkdownRenderer.svelte";
 	import OpenReasoningResults from "./OpenReasoningResults.svelte";
 	import Alternatives from "./Alternatives.svelte";
 	import MessageAvatar from "./MessageAvatar.svelte";
 	import PersonaResponseCarousel from "./PersonaResponseCarousel.svelte";
-	import { THINK_BLOCK_REGEX } from "$lib/constants/thinkBlockRegex";
+import ThinkingPlaceholder from "./ThinkingPlaceholder.svelte";
+import { hasThinkSegments, splitThinkSegments } from "$lib/utils/stripThinkBlocks";
 
 	interface Props {
 		message: Message;
@@ -92,14 +93,14 @@
 	// const urlNotTrailing = $derived(page.url.pathname.replace(/\/$/, ""));
 	// let downloadLink = $derived(urlNotTrailing + `/message/${message.id}/prompt`);
 
-	let thinkSegments = $derived.by(() => message.content.split(THINK_BLOCK_REGEX));
+let thinkSegments = $derived.by(() => splitThinkSegments(message.content));
 	let hasServerReasoning = $derived(
 		reasoningUpdates &&
 			reasoningUpdates.length > 0 &&
 			!!message.reasoning &&
 			message.reasoning.trim().length > 0
 	);
-	let hasClientThink = $derived(!hasServerReasoning && thinkSegments.length > 1);
+let hasClientThink = $derived(!hasServerReasoning && hasThinkSegments(message.content));
 
 	$effect(() => {
 		if (isCopied) {
@@ -193,28 +194,27 @@
 					<IconLoading classNames="loading inline ml-2 first:ml-0" />
 				{/if}
 
-				{#if hasClientThink}
-					{#each message.content.split(THINK_BLOCK_REGEX) as part, _i}
-						{#if part && part.startsWith("<think>")}
-							{@const isClosed = part.endsWith("</think>")}
-							{@const thinkContent = part.slice(7, isClosed ? -8 : undefined)}
-							{@const summary = isClosed
-								? thinkContent.trim().split(/\n+/)[0] || "Reasoning"
-								: "Thinking..."}
+			{#if hasClientThink}
+				{#each thinkSegments as part, _i}
+					{#if part && part.startsWith("<think>")}
+						{@const trimmed = part.trimEnd()}
+						{@const isClosed = trimmed.endsWith("</think>")}
 
-							<OpenReasoningResults
-								{summary}
-								content={thinkContent}
-								loading={isLast && loading && !isClosed}
-							/>
-						{:else if part && part.trim().length > 0}
-							<div
-								class="prose max-w-none dark:prose-invert max-sm:prose-sm prose-headings:font-semibold prose-h1:text-lg prose-h2:text-base prose-h3:text-base prose-pre:bg-gray-800 dark:prose-pre:bg-gray-900"
-							>
-								<MarkdownRenderer content={part} loading={isLast && loading} />
-							</div>
+						{#if isClosed}
+							{@const thinkContent = trimmed.slice(7, -8)}
+							{@const summary = thinkContent.trim().split(/\n+/)[0] || "Reasoning"}
+							<OpenReasoningResults {summary} content={thinkContent} loading={false} />
+						{:else}
+							<ThinkingPlaceholder />
 						{/if}
-					{/each}
+					{:else if part && part.trim().length > 0}
+						<div
+							class="prose max-w-none dark:prose-invert max-sm:prose-sm prose-headings:font-semibold prose-h1:text-lg prose-h2:text-base prose-h3:text-base prose-pre:bg-gray-800 dark:prose-pre:bg-gray-900"
+						>
+							<MarkdownRenderer content={part} loading={isLast && loading} />
+						</div>
+					{/if}
+				{/each}
 				{:else}
 					<div
 						class="prose max-w-none dark:prose-invert max-sm:prose-sm prose-headings:font-semibold prose-h1:text-lg prose-h2:text-base prose-h3:text-base prose-pre:bg-gray-800 dark:prose-pre:bg-gray-900"
