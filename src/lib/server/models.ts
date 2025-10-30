@@ -9,6 +9,10 @@ import { makeRouterEndpoint } from "$lib/server/router/endpoint";
 
 type Optional<T, K extends keyof T> = Pick<Partial<T>, K> & Omit<T, K>;
 
+export interface EndpointOptions {
+	apiKey?: string;
+}
+
 const sanitizeJSONEnv = (val: string, fallback: string) => {
 	const raw = (val ?? "").trim();
 	const unquoted = raw.startsWith("`") && raw.endsWith("`") ? raw.slice(1, -1) : raw;
@@ -276,7 +280,7 @@ const processModel = async (m: ModelConfig) => ({
 
 const addEndpoint = (m: Awaited<ReturnType<typeof processModel>>) => ({
 	...m,
-	getEndpoint: async (): Promise<Endpoint> => {
+	getEndpoint: async (options?: EndpointOptions): Promise<Endpoint> => {
 		if (!m.endpoints || m.endpoints.length === 0) {
 			throw new Error("No endpoints configured. This build requires OpenAI-compatible endpoints.");
 		}
@@ -285,7 +289,12 @@ const addEndpoint = (m: Awaited<ReturnType<typeof processModel>>) => ({
 		if (endpoint.type !== "openai") {
 			throw new Error("Only 'openai' endpoint type is supported in this build");
 		}
-		return await endpoints.openai({ ...endpoint, model: m });
+		const overrideApiKey = options?.apiKey;
+		return await endpoints.openai({
+			...endpoint,
+			model: m,
+			...(overrideApiKey ? { apiKey: overrideApiKey } : {}),
+		});
 	},
 });
 
@@ -343,7 +352,8 @@ if (archBase) {
 		...aliasBase,
 		isRouter: true,
 		// getEndpoint uses the router wrapper regardless of the endpoints array
-		getEndpoint: async (): Promise<Endpoint> => makeRouterEndpoint(aliasModel),
+		getEndpoint: async (options?: EndpointOptions): Promise<Endpoint> =>
+			makeRouterEndpoint(aliasModel, options),
 	} as ProcessedModel;
 
 	// Put alias first
