@@ -33,8 +33,20 @@ const passwordWhitelist = z
 	.array(
 		z
 			.object({
-				username: z.string().optional(),
-				email: z.string().email().optional(),
+				username: z
+					.preprocess((val) => {
+						if (typeof val !== "string") return val;
+						const trimmed = val.trim();
+						return trimmed.length === 0 ? undefined : trimmed;
+					}, z.string().min(1))
+					.optional(),
+				email: z
+					.preprocess((val) => {
+						if (typeof val !== "string") return val;
+						const trimmed = val.trim();
+						return trimmed.length === 0 ? undefined : trimmed;
+					}, z.string().email())
+					.optional(),
 				passwordHash: z.string().length(64),
 				name: z.string().optional(),
 				isAdmin: z.boolean().optional(),
