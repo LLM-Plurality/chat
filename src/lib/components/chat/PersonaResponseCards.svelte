@@ -1,12 +1,13 @@
 <script lang="ts">
 	import type { PersonaResponse } from "$lib/types/Message";
-	import MarkdownRenderer from "./MarkdownRenderer.svelte";
-	import OpenReasoningResults from "./OpenReasoningResults.svelte";
-	import CopyToClipBoardBtn from "../CopyToClipBoardBtn.svelte";
-	import CarbonRotate360 from "~icons/carbon/rotate-360";
-	import CarbonChevronDown from "~icons/carbon/chevron-down";
-	import CarbonChevronUp from "~icons/carbon/chevron-up";
-	import { THINK_BLOCK_REGEX } from "$lib/constants/thinkBlockRegex";
+import MarkdownRenderer from "./MarkdownRenderer.svelte";
+import OpenReasoningResults from "./OpenReasoningResults.svelte";
+import CopyToClipBoardBtn from "../CopyToClipBoardBtn.svelte";
+import CarbonRotate360 from "~icons/carbon/rotate-360";
+import CarbonChevronDown from "~icons/carbon/chevron-down";
+import CarbonChevronUp from "~icons/carbon/chevron-up";
+import ThinkingPlaceholder from "./ThinkingPlaceholder.svelte";
+import { hasThinkSegments, splitThinkSegments } from "$lib/utils/stripThinkBlocks";
 	import { goto } from "$app/navigation";
 	import { base } from "$app/paths";
 
@@ -31,7 +32,7 @@
 
 	// Check if content has <think> blocks
 	function hasClientThink(content: string | undefined): boolean {
-		return content ? THINK_BLOCK_REGEX.test(content) : false;
+	return content ? hasThinkSegments(content) : false;
 	}
 
 	// Check if content has overflow
@@ -91,28 +92,28 @@
 				class="mt-2"
 				style={isExpanded ? '' : `max-height: ${MAX_COLLAPSED_HEIGHT}px; overflow: hidden;`}
 			>
-				{#if hasClientThink(response.content)}
-					{#each response.content.split(THINK_BLOCK_REGEX) as part, _i}
-						{#if part && part.startsWith("<think>")}
-							{@const isClosed = part.endsWith("</think>")}
-							{@const thinkContent = part.slice(7, isClosed ? -8 : undefined)}
-							{@const summary = isClosed
-								? thinkContent.trim().split(/\n+/)[0] || "Reasoning"
-								: "Thinking..."}
+			{#if hasClientThink(response.content)}
+				{@const segments = splitThinkSegments(response.content ?? "")}
+				{#each segments as part, _i}
+					{#if part && part.startsWith("<think>")}
+						{@const trimmed = part.trimEnd()}
+						{@const isClosed = trimmed.endsWith("</think>")}
 
-							<OpenReasoningResults
-								{summary}
-								content={thinkContent}
-								loading={loading && !isClosed}
-							/>
-						{:else if part && part.trim().length > 0}
-							<div
-								class="prose max-w-none dark:prose-invert max-sm:prose-sm prose-headings:font-semibold prose-h1:text-lg prose-h2:text-base prose-h3:text-base prose-pre:bg-gray-800 dark:prose-pre:bg-gray-900"
-							>
-								<MarkdownRenderer content={part} {loading} />
-							</div>
+						{#if isClosed}
+							{@const thinkContent = trimmed.slice(7, -8)}
+							{@const summary = thinkContent.trim().split(/\n+/)[0] || "Reasoning"}
+							<OpenReasoningResults {summary} content={thinkContent} loading={false} />
+						{:else}
+							<ThinkingPlaceholder />
 						{/if}
-					{/each}
+					{:else if part && part.trim().length > 0}
+						<div
+							class="prose max-w-none dark:prose-invert max-sm:prose-sm prose-headings:font-semibold prose-h1:text-lg prose-h2:text-base prose-h3:text-base prose-pre:bg-gray-800 dark:prose-pre:bg-gray-900"
+						>
+							<MarkdownRenderer content={part} {loading} />
+						</div>
+					{/if}
+				{/each}
 				{:else}
 					<div
 						class="prose max-w-none dark:prose-invert max-sm:prose-sm prose-headings:font-semibold prose-h1:text-lg prose-h2:text-base prose-h3:text-base prose-pre:bg-gray-800 dark:prose-pre:bg-gray-900"
