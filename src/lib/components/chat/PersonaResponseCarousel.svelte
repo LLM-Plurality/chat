@@ -163,6 +163,10 @@ import { hasThinkSegments, splitThinkSegments } from "$lib/utils/stripThinkBlock
 	let showLeftArrow = $derived(currentIndex > 0);
 	let showRightArrow = $derived(currentIndex < personaResponses.length - 1);
 	let showPositionIndicator = $derived(personaResponses.length > 3);
+	let personaCount = $derived(Math.max(personaResponses.length, 1));
+	let cardWidthPercent = $derived(100 / personaCount);
+	let trackWidthPercent = $derived(personaCount * 100);
+	let trackTranslatePercent = $derived(currentIndex * cardWidthPercent);
 </script>
 
 <!-- Outer wrapper for arrows -->
@@ -171,7 +175,7 @@ import { hasThinkSegments, splitThinkSegments } from "$lib/utils/stripThinkBlock
 	{#if personaResponses.length > 1 && showLeftArrow}
 		<button
 			onclick={previous}
-			class="absolute -left-16 top-1/2 z-20 -translate-y-1/2 p-2 text-gray-600 transition-all hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
+			class="absolute left-2 top-1/2 z-20 -translate-y-1/2 p-2 text-gray-600 transition-all hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
 			aria-label="Previous persona"
 		>
 			<CarbonChevronLeft class="text-3xl" />
@@ -182,7 +186,7 @@ import { hasThinkSegments, splitThinkSegments } from "$lib/utils/stripThinkBlock
 	{#if personaResponses.length > 1 && showRightArrow}
 		<button
 			onclick={next}
-			class="absolute -right-16 top-1/2 z-20 -translate-y-1/2 p-2 text-gray-600 transition-all hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
+			class="absolute right-2 top-1/2 z-20 -translate-y-1/2 p-2 text-gray-600 transition-all hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
 			aria-label="Next persona"
 		>
 			<CarbonChevronRight class="text-3xl" />
@@ -201,9 +205,9 @@ import { hasThinkSegments, splitThinkSegments } from "$lib/utils/stripThinkBlock
 		ontouchend={handleDragEnd}
 	>
 		<div 
-			class="carousel-track flex transition-all duration-300 ease-out"
+		class="carousel-track flex transition-all duration-300 ease-out"
 			class:dragging={isDragging}
-			style="transform: translateX(calc(-{currentIndex * 100}% + {dragOffset}px));"
+		style={`width: ${trackWidthPercent}%; transform: translateX(calc(-${trackTranslatePercent}% + ${dragOffset}px));`}
 		>
 		{#each personaResponses as response, index (response.personaId)}
 			{@const isActive = index === currentIndex}
@@ -214,12 +218,12 @@ import { hasThinkSegments, splitThinkSegments } from "$lib/utils/stripThinkBlock
 			{@const allVersions = getAllVersions(response)}
 			{@const currentVersionIndex = personaVersionIndices[response.personaId] ?? response.currentChildIndex ?? 0}
 
-			<div 
-				class="carousel-card flex-shrink-0 transition-all duration-300"
-				class:active={isActive}
-				class:peek={!isActive}
-				style="width: 100%;"
-			>
+		<div 
+			class="carousel-card flex-shrink-0 transition-all duration-300"
+			class:active={isActive}
+			class:peek={!isActive}
+			style={`width: ${cardWidthPercent}%;`}
+		>
 				<div 
 					class="relative w-full rounded-2xl border border-gray-100 bg-gradient-to-br from-gray-50 px-5 py-3.5 text-gray-600 dark:border-gray-800 dark:from-gray-800/80 dark:text-gray-300"
 					class:pointer-events-none={!isActive}

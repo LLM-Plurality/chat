@@ -101,6 +101,7 @@ let thinkSegments = $derived.by(() => splitThinkSegments(message.content));
 			message.reasoning.trim().length > 0
 	);
 let hasClientThink = $derived(!hasServerReasoning && hasThinkSegments(message.content));
+let hasPersonaResponses = $derived((message.personaResponses?.length ?? 0) > 0);
 
 	$effect(() => {
 		if (isCopied) {
@@ -125,10 +126,12 @@ let hasClientThink = $derived(!hasServerReasoning && hasThinkSegments(message.co
 {#if message.from === "assistant"}
 	<div
 		bind:offsetWidth={messageWidth}
-		class="group relative -mb-4 flex w-fit max-w-full items-start justify-start gap-4 pb-4 leading-relaxed max-sm:mb-1 {message.routerMetadata &&
+		class="group relative -mb-4 flex max-w-full items-start justify-start gap-4 pb-4 leading-relaxed max-sm:mb-1 {message.routerMetadata &&
 		messageInfoWidth >= messageWidth
 			? 'mb-1'
 			: ''}"
+		class:w-full={hasPersonaResponses}
+		class:w-fit={!hasPersonaResponses}
 		data-message-id={message.id}
 		data-message-role="assistant"
 		role="presentation"
@@ -142,7 +145,7 @@ let hasClientThink = $derived(!hasServerReasoning && hasThinkSegments(message.co
 	
 	{#if message.personaResponses && message.personaResponses.length > 0}
 		<!-- Multi-persona mode: no outer container, just carousel -->
-		<div bind:this={contentEl} class="flex-1">
+		<div bind:this={contentEl} class="flex-1 min-w-0">
 			<PersonaResponseCarousel 
 				personaResponses={message.personaResponses} 
 				loading={isLast && loading}
