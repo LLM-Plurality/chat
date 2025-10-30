@@ -301,7 +301,13 @@ export async function authenticateRequest(
 
 			const cacheHit = await collections.tokenCaches.findOne({ tokenHash: hash });
 			if (cacheHit) {
-				const user = await collections.users.findOne({ hfUserId: cacheHit.userId });
+				const user =
+					(await collections.users.findOne({
+						$or: [
+							{ authProvider: "huggingface", authId: cacheHit.userId },
+							{ hfUserId: cacheHit.userId },
+						],
+					})) || null;
 				if (!user) {
 					throw new Error("User not found");
 				}
@@ -322,7 +328,10 @@ export async function authenticateRequest(
 			}
 
 			const data = await response.json();
-			const user = await collections.users.findOne({ hfUserId: data.id });
+			const user =
+				(await collections.users.findOne({
+					$or: [{ authProvider: "huggingface", authId: data.id }, { hfUserId: data.id }],
+				})) || null;
 			if (!user) {
 				throw new Error("User not found");
 			}
