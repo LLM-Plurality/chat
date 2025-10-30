@@ -22,6 +22,7 @@ import { usageLimits } from "$lib/server/usageLimits";
 import { textGeneration } from "$lib/server/textGeneration";
 import type { TextGenerationContext } from "$lib/server/textGeneration/types";
 import { logger } from "$lib/server/logger.js";
+import { getUserHFToken } from "$lib/server/userTokens";
 
 export async function POST({ request, locals, params, getClientAddress }) {
 	const id = z.string().parse(params.id);
@@ -133,6 +134,13 @@ export async function POST({ request, locals, params, getClientAddress }) {
 	if (!model) {
 		error(410, "Model not available anymore");
 	}
+
+	const userApiKeyOverride =
+		locals.user?._id && locals.user?.authProvider === "huggingface"
+			? await getUserHFToken(locals.user._id)
+			: null;
+
+	const endpointOptions = userApiKeyOverride ? { apiKey: userApiKeyOverride } : undefined;
 
 	// finally parse the content of the request
 	const form = await request.formData();
@@ -488,7 +496,7 @@ export async function POST({ request, locals, params, getClientAddress }) {
 				try {
 					const ctx: TextGenerationContext = {
 						model,
-						endpoint: await model.getEndpoint(),
+						endpoint: await model.getEndpoint(endpointOptions),
 						conv,
 						messages: messagesForPrompt,
 						assistant: undefined,
@@ -496,6 +504,7 @@ export async function POST({ request, locals, params, getClientAddress }) {
 						promptedAt,
 						ip: getClientAddress(),
 						username: locals.user?.username,
+						authToken: endpointOptions?.apiKey,
 						// Force-enable multimodal if user settings say so for this model
 						forceMultimodal: Boolean(userSettings?.multimodalOverrides?.[model.id]),
 					};
@@ -577,7 +586,9 @@ export async function POST({ request, locals, params, getClientAddress }) {
 				try {
 					// Generate title if needed (do this once, not per-persona)
 					if (conv.title === "New Chat") {
-						for await (const titleUpdate of generateTitleForConversation(conv)) {
+						for await (const titleUpdate of generateTitleForConversation(conv, {
+							apiKey: endpointOptions?.apiKey,
+						})) {
 							await update(titleUpdate);
 						}
 					}
@@ -588,7 +599,7 @@ export async function POST({ request, locals, params, getClientAddress }) {
 
 					const ctx: TextGenerationContext = {
 						model,
-						endpoint: await model.getEndpoint(),
+						endpoint: await model.getEndpoint(endpointOptions),
 						conv,
 						messages: messagesWithoutSystem,
 						assistant: undefined,
@@ -596,6 +607,7 @@ export async function POST({ request, locals, params, getClientAddress }) {
 						promptedAt,
 						ip: getClientAddress(),
 						username: locals.user?.username,
+						authToken: endpointOptions?.apiKey,
 						forceMultimodal: Boolean(userSettings?.multimodalOverrides?.[model.id]),
 					};
 
