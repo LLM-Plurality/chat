@@ -7,17 +7,19 @@ export async function* generateFromDefaultEndpoint({
 	preprompt,
 	generateSettings,
 	modelId,
+	apiKey,
 }: {
 	messages: EndpointMessage[];
 	preprompt?: string;
 	generateSettings?: Record<string, unknown>;
 	/** Optional: use this model instead of the default task model */
 	modelId?: string;
+	apiKey?: string;
 }): AsyncGenerator<MessageUpdate, string, undefined> {
 	try {
 		// Choose endpoint based on provided modelId, else fall back to taskModel
 		const model = modelId ? (models.find((m) => m.id === modelId) ?? taskModel) : taskModel;
-		const endpoint = await model.getEndpoint();
+		const endpoint = await model.getEndpoint(apiKey ? { apiKey } : undefined);
 		const tokenStream = await endpoint({ messages, preprompt, generateSettings });
 
 		for await (const output of tokenStream) {
