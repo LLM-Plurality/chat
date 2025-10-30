@@ -23,6 +23,7 @@ export async function* generate(
 		isContinue,
 		promptedAt,
 		forceMultimodal,
+		authToken,
 	}: GenerateContext,
 	preprompt?: string
 ): AsyncIterable<MessageUpdate> {
@@ -100,9 +101,9 @@ export async function* generate(
 						messages: [
 							{
 								from: "user",
-								content: `Question: ${
-									messages[messages.length - 1].content
-								}\n\nReasoning: ${reasoningBuffer}`,
+								content: `Question: ${messages[messages.length - 1].content}
+
+Reasoning: ${reasoningBuffer}`,
 							},
 						],
 						preprompt: `Your task is to summarize concisely all your reasoning steps and then give the final answer. Keep it short, one short paragraph at most. If the reasoning steps explicitly include a code solution, make sure to include it in your answer.
@@ -114,6 +115,7 @@ Do not use prefixes such as Response: or Answer: when answering to the user.`,
 							max_tokens: 1024,
 						},
 						modelId: model.id,
+						apiKey: authToken,
 					});
 					finalAnswer = summary;
 					yield {
@@ -224,9 +226,11 @@ Do not use prefixes such as Response: or Answer: when answering to the user.`,
 			) {
 				lastReasoningUpdate = new Date();
 				try {
-					generateSummaryOfReasoning(reasoningBuffer, model.id).then((summary) => {
-						status = summary;
-					});
+					generateSummaryOfReasoning(reasoningBuffer, model.id, { apiKey: authToken }).then(
+						(summary) => {
+							status = summary;
+						}
+					);
 				} catch (e) {
 					logger.error(e);
 				}
