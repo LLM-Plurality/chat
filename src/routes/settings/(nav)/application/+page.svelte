@@ -20,12 +20,21 @@
 	const client = useAPIClient();
 
 	let OPENAI_BASE_URL: string | null = null;
+	let hasHFToken: boolean = false;
+	
 	onMount(async () => {
 		try {
 			const cfg = await client.debug.config.get().then(handleResponse);
 			OPENAI_BASE_URL = (cfg as { OPENAI_BASE_URL?: string }).OPENAI_BASE_URL || null;
 		} catch (e) {
 			// ignore if debug endpoint is unavailable
+		}
+		
+		try {
+			const userData = await client.user.get().then(handleResponse);
+			hasHFToken = (userData as { hasHFToken?: boolean }).hasHFToken || false;
+		} catch (e) {
+			// ignore if user endpoint is unavailable
 		}
 	});
 
@@ -172,6 +181,17 @@
 			<code class="ml-1 break-all font-mono text-[12px] text-gray-800 dark:text-gray-100"
 				>{OPENAI_BASE_URL}</code
 			>
+		</div>
+	{/if}
+	
+	{#if hasHFToken}
+		<div
+			class="mt-1 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] text-blue-700 dark:border-blue-700 dark:bg-blue-900/20 dark:text-blue-300"
+		>
+			<span class="font-medium">Using your Hugging Face token</span>
+			<p class="mt-1 text-[11px] text-blue-600 dark:text-blue-400">
+				Your Hugging Face access token is being used for inference requests.
+			</p>
 		</div>
 	{/if}
 	{#if !!publicConfig.PUBLIC_COMMIT_SHA}
