@@ -16,6 +16,7 @@ import { MongoMemoryServer } from "mongodb-memory-server";
 import { logger } from "$lib/server/logger";
 import { building } from "$app/environment";
 import type { TokenCache } from "$lib/types/TokenCache";
+import type { UserToken } from "$lib/types/UserToken";
 import { onExit } from "./exitHandler";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
@@ -131,6 +132,7 @@ export class Database {
 		const migrationResults = db.collection<MigrationResult>("migrationResults");
 		const semaphores = db.collection<Semaphore>("semaphores");
 		const tokenCaches = db.collection<TokenCache>("tokens");
+		const userTokens = db.collection<UserToken>("userTokens");
 		const tools = db.collection("tools");
 		const configCollection = db.collection<ConfigKey>("config");
 
@@ -150,6 +152,7 @@ export class Database {
 			migrationResults,
 			semaphores,
 			tokenCaches,
+			userTokens,
 			tools,
 			config: configCollection,
 		};
@@ -174,6 +177,7 @@ export class Database {
 			messageEvents,
 			semaphores,
 			tokenCaches,
+			userTokens,
 			config,
 		} = this.getCollections();
 
@@ -235,7 +239,29 @@ export class Database {
 			.createIndex({ userId: 1 }, { unique: true, sparse: true })
 			.catch((e) => logger.error(e));
 		settings.createIndex({ assistants: 1 }).catch((e) => logger.error(e));
-		users.createIndex({ hfUserId: 1 }, { unique: true }).catch((e) => logger.error(e));
+		users
+			.createIndex(
+				{ hfUserId: 1 },
+				{
+					unique: true,
+					name: "hfUserId_1",
+					partialFilterExpression: { hfUserId: { $exists: true } },
+				}
+			)
+			.catch((e) => logger.error(e));
+		users
+			.createIndex(
+				{ authProvider: 1, authId: 1 },
+				{
+					unique: true,
+					name: "authProvider_1_authId_1",
+					partialFilterExpression: {
+						authProvider: { $exists: true },
+						authId: { $exists: true },
+					},
+				}
+			)
+			.catch((e) => logger.error(e));
 		users
 			.createIndex({ sessionId: 1 }, { unique: true, sparse: true })
 			.catch((e) => logger.error(e));
@@ -271,6 +297,9 @@ export class Database {
 			.createIndex({ createdAt: 1 }, { expireAfterSeconds: 5 * 60 })
 			.catch((e) => logger.error(e));
 		tokenCaches.createIndex({ tokenHash: 1 }).catch((e) => logger.error(e));
+		userTokens
+			.createIndex({ userId: 1, provider: 1 }, { unique: true })
+			.catch((e) => logger.error(e));
 		// Tools removed: skipping tools indexes
 
 		conversations
