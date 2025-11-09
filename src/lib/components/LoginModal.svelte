@@ -62,7 +62,7 @@ async function handlePasswordSubmit(event: SubmitEvent) {
 	<div
 		class="from-primary-500/40 via-primary-500/10 to-primary-500/0 flex w-full flex-col items-center gap-6 bg-gradient-to-b px-5 pb-8 pt-9 text-center"
 	>
-		<h2 class="flex items-center text-2xl font-semibold text-gray-800">
+		<h2 class="flex items-center text-2xl font-semibold text-gray-800 dark:text-white">
 			<Logo classNames="mr-1" />
 			{publicConfig.PUBLIC_APP_NAME}
 		</h2>
