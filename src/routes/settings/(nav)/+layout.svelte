@@ -215,6 +215,32 @@ let firstNonArchivedPersonaId = $derived(() =>
 			settings.instantSet({ activePersonas: [...$settings.activePersonas, personaId] });
 		}
 	}
+
+	function deactivatePersona(personaId: string, event: Event) {
+		event.stopPropagation();
+		if ($settings.activePersonas.length === 1) {
+			alert("At least one persona must be active.");
+			return;
+		}
+		settings.instantSet({ activePersonas: $settings.activePersonas.filter(id => id !== personaId) });
+	}
+
+	let hoveredActiveTag: string | null = $state(null);
+	let hoverTimeout: number | undefined = $state();
+
+	function handleActiveTagMouseEnter(personaId: string) {
+		hoverTimeout = window.setTimeout(() => {
+			hoveredActiveTag = personaId;
+		}, 50);
+	}
+
+	function handleActiveTagMouseLeave() {
+		if (hoverTimeout) {
+			clearTimeout(hoverTimeout);
+			hoverTimeout = undefined;
+		}
+		hoveredActiveTag = null;
+	}
 </script>
 
 <div
@@ -432,9 +458,16 @@ let firstNonArchivedPersonaId = $derived(() =>
 
 			{#if $settings.activePersonas.includes(persona.id)}
 				<div
-					class="flex h-[21px] items-center rounded-md bg-black/90 px-2 text-[11px] font-semibold leading-none text-white dark:bg-white dark:text-black"
+					role="button"
+					tabindex="0"
+					class="flex h-[21px] cursor-pointer items-center rounded-md bg-black/90 px-2 text-[11px] font-semibold leading-none text-white dark:bg-white dark:text-black"
+					onclick={(e) => deactivatePersona(persona.id, e)}
+					onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); deactivatePersona(persona.id, e); }}}
+					onmouseenter={() => handleActiveTagMouseEnter(persona.id)}
+					onmouseleave={handleActiveTagMouseLeave}
+					title="Click to deactivate"
 				>
-					Active
+					{hoveredActiveTag === persona.id ? 'Deactivate?' : 'Active'}
 				</div>
 			{/if}
 				</button>
