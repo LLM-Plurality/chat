@@ -477,8 +477,8 @@ export async function POST({ request, locals, params, getClientAddress }) {
 				.map((id) => userSettings?.personas?.find((p) => p.id === id && !p.archived))
 				.filter((p): p is import("$lib/types/Persona").Persona => p !== undefined && !p.archived);
 
-			// Determine if we should use multi-persona mode
-			const useMultiPersona = activePersonas.length > 1;
+			// Determine if we should use multi-persona mode (includes single persona for consistency)
+			const useMultiPersona = activePersonas.length >= 1;
 
 			if (!useMultiPersona) {
 				// Use current persona prompt (reflects any edits)

@@ -31,14 +31,8 @@ export async function* multiPersonaTextGeneration(
 		return;
 	}
 
-	if (personas.length === 1) {
-		// If only one persona, use the standard text generation
-		// (this shouldn't happen, but handle it gracefully)
-		logger.warn("multiPersonaTextGeneration called with single persona, using standard flow");
-		const { textGeneration } = await import("./index");
-		yield* textGeneration(ctx);
-		return;
-	}
+	// Single persona now uses the same flow as multiple personas for consistency
+	// This ensures all responses have the same personaResponses structure
 
 	const { conv, messages } = ctx;
 	const convId = conv._id;
