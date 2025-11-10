@@ -21,6 +21,7 @@
 
 	let OPENAI_BASE_URL: string | null = null;
 	let hasHFToken: boolean = false;
+	let isAdmin: boolean = false;
 	
 	onMount(async () => {
 		try {
@@ -33,6 +34,7 @@
 		try {
 			const userData = await client.user.get().then(handleResponse);
 			hasHFToken = (userData as { hasHFToken?: boolean }).hasHFToken || false;
+			isAdmin = (userData as { isAdmin?: boolean }).isAdmin || false;
 		} catch (e) {
 			// ignore if user endpoint is unavailable
 		}
@@ -173,7 +175,7 @@
 			</div>
 		</div>
 
-	{#if OPENAI_BASE_URL !== null}
+	{#if OPENAI_BASE_URL !== null && isAdmin}
 		<div
 			class="mt-1 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-[12px] text-gray-700 dark:border-gray-700 dark:bg-gray-700/80 dark:text-gray-300"
 		>
