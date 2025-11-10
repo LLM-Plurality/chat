@@ -28,6 +28,7 @@
 	import { goto } from "$app/navigation";
 	import { base } from "$app/paths";
 	import type { PersonaResponse } from "$lib/types/Message";
+	import { onDestroy } from "svelte";
 
 	interface Props {
 		message: Message;
@@ -41,6 +42,11 @@
 		personaName?: string;
 		personaOccupation?: string;
 		personaStance?: string;
+		branchState?: {
+			messageId: string;
+			personaId: string;
+			personaName: string;
+		} | null;
 		onretry?: (payload: { id: Message["id"]; content?: string; personaId?: string }) => void;
 		onshowAlternateMsg?: (payload: { id: Message["id"] }) => void;
 		onbranch?: (messageId: string, personaId: string) => void;
@@ -60,6 +66,7 @@
 		personaName,
 		personaOccupation,
 		personaStance,
+		branchState,
 		onretry,
 		onshowAlternateMsg,
 		onbranch,
@@ -72,15 +79,15 @@
 	let messageInfoWidth: number = $state(0);
 	let isBranching = $state(false);
 	
-	// Track expanded state for each persona card
 	let expandedStates = $state<Record<string, boolean>>({});
-	
-	// Track which persona is currently "focused" (full-width carousel mode)
 	let focusedPersonaId = $state<string | null>(null);
-	
-	// Track content elements for overflow detection
+
 	let contentElements = $state<Record<string, HTMLElement | null>>({});
 	const MAX_COLLAPSED_HEIGHT = 400;
+	
+	// Track which branch button was just clicked for animation
+	let branchClickedPersonaId = $state<string | null>(null);
+	let branchClickTimeout: ReturnType<typeof setTimeout> | undefined;
 
 	$effect(() => {
 		// referenced to appease linter for currently-unused props
@@ -238,19 +245,29 @@ let hasClientThink = $derived(!hasServerReasoning && hasThinkSegments(message.co
 		}
 	}
 
-	function hasClientThinkInContent(content: string | undefined): boolean {
-		return content ? hasThinkSegments(content) : false;
-	}
-
+	// Reactive overflow detection - updates during streaming
+	let overflowStates = $derived.by(() => {
+		const states: Record<string, boolean> = {};
+		responses.forEach(r => {
+			const element = contentElements[r.personaId];
+			states[r.personaId] = element ? element.scrollHeight > MAX_COLLAPSED_HEIGHT : false;
+		});
+		return states;
+	});
+	
 	function hasOverflow(personaId: string): boolean {
-		const element = contentElements[personaId];
-		if (!element) return false;
-		return element.scrollHeight > MAX_COLLAPSED_HEIGHT;
+		return overflowStates[personaId] || false;
 	}
 
 	function openPersonaSettings(personaId: string) {
 		goto(`${base}/settings/personas/${personaId}`);
 	}
+
+	onDestroy(() => {
+		if (branchClickTimeout) {
+			clearTimeout(branchClickTimeout);
+		}
+	});
 </script>
 
 {#if message.from === "assistant"}
@@ -302,7 +319,7 @@ let hasClientThink = $derived(!hasServerReasoning && hasThinkSegments(message.co
 		{/if}
 		
 		<!-- Container: horizontal scroll for multiple cards (unless focused), single card otherwise -->
-		<div class="{hasMultipleCards && !focusedPersonaId ? 'flex gap-3 overflow-x-auto pb-2' : ''}">
+		<div class="{hasMultipleCards && !focusedPersonaId ? 'persona-scroll-container flex gap-3 overflow-x-auto pb-2 px-12' : ''}">
 			{#if isPersonaMode && responses.length === 0 && isLast && loading}
 				<!-- Loading state: waiting for personas to start responding -->
 				<div class="rounded-2xl border border-gray-100 bg-gradient-to-br from-gray-50 px-5 py-4 text-gray-600 dark:border-gray-800 dark:from-gray-800/80 dark:text-gray-300">
@@ -314,6 +331,7 @@ let hasClientThink = $derived(!hasServerReasoning && hasThinkSegments(message.co
 				{@const displayName = response.personaName || personaName || 'Assistant'}
 				{@const isFocused = focusedPersonaId === response.personaId}
 				{@const shouldHide = focusedPersonaId && !isFocused}
+				{@const isGenerating = isLast && loading && (!response.content || response.content.length === 0)}
 				
 				{#if !shouldHide}
 					<!-- Card: ALL use gradient bubble styling for consistency -->
@@ -321,7 +339,7 @@ let hasClientThink = $derived(!hasServerReasoning && hasThinkSegments(message.co
 						class="rounded-2xl border border-gray-100 bg-gradient-to-br from-gray-50 px-5 py-4 text-gray-600 dark:border-gray-800 dark:from-gray-800/80 dark:text-gray-300 {hasMultipleCards && !focusedPersonaId ? 'persona-card flex-shrink-0' : ''}"
 						style={hasMultipleCards && !focusedPersonaId ? `min-width: 320px; max-width: ${isExpanded ? '600px' : '420px'};` : ''}
 					>
-					<!-- Persona Header: persona name + copy button (simplified, consistent for all) -->
+					<!-- Persona Header: persona name + action buttons -->
 					<div class="mb-3 flex items-center justify-between border-b border-gray-200 pb-2 dark:border-gray-700">
 						{#if isPersonaMode}
 							<button
@@ -339,10 +357,53 @@ let hasClientThink = $derived(!hasServerReasoning && hasThinkSegments(message.co
 							</h3>
 						{/if}
 						
-						<CopyToClipBoardBtn
-							classNames="!rounded-md !p-1.5 !text-gray-500 hover:!bg-gray-100 dark:!text-gray-400 dark:hover:!bg-gray-800"
-							value={response.content}
-						/>
+						<div class="flex items-center gap-1">
+							{#if !loading && onretry}
+								<button
+									type="button"
+									class="!rounded-md !p-1.5 !text-gray-500 hover:!bg-gray-100 dark:!text-gray-400 dark:hover:!bg-gray-800 transition-colors"
+									onclick={(e) => {
+										e.stopPropagation();
+										onretry?.({ id: message.id, personaId: response.personaId });
+									}}
+									aria-label="Regenerate {displayName}'s response"
+									title="Regenerate this response"
+								>
+									<CarbonRotate360 class="text-base" />
+								</button>
+							{/if}
+							{#if !loading && onbranch}
+								{@const isBranchClicked = branchClickedPersonaId === response.personaId}
+								<button
+									type="button"
+									class="!rounded-md !p-1.5 !text-gray-500 hover:!bg-gray-100 dark:!text-gray-400 dark:hover:!bg-gray-800 transition-colors"
+									onclick={(e) => {
+										e.stopPropagation();
+										
+										// Trigger animation
+										branchClickedPersonaId = response.personaId;
+										if (branchClickTimeout) {
+											clearTimeout(branchClickTimeout);
+										}
+										branchClickTimeout = setTimeout(() => {
+											branchClickedPersonaId = null;
+										}, 500);
+										
+										onbranch?.(message.id, response.personaId);
+									}}
+									aria-label="Branch conversation with {displayName}"
+									title="Start private conversation with {displayName}"
+								>
+									<div class="relative transition-transform duration-200 {isBranchClicked ? 'scale-125' : 'scale-100'}">
+										<CarbonBranch class="text-base" />
+									</div>
+								</button>
+							{/if}
+							<CopyToClipBoardBtn
+								classNames="!rounded-md !p-1.5 !text-gray-500 hover:!bg-gray-100 dark:!text-gray-400 dark:hover:!bg-gray-800"
+								value={response.content}
+							/>
+						</div>
 					</div>
 
 					<!-- File attachments: only for legacy mode (message-level, not persona-level) -->
@@ -365,20 +426,17 @@ let hasClientThink = $derived(!hasServerReasoning && hasThinkSegments(message.co
 						class="mt-2"
 						style={isExpanded ? '' : `max-height: ${MAX_COLLAPSED_HEIGHT}px; overflow: hidden;`}
 					>
-						{#if isLast && loading && message.content.length === 0 && !hasServerReasoning}
+						{#if isGenerating}
+							<!-- Loading state: show dots while generating -->
 							<IconLoading classNames="loading inline ml-2 first:ml-0" />
-						{/if}
-
-						{#if hasClientThinkInContent(response.content)}
+						{:else}
+							<!-- Content with think tag parsing -->
 							{@const segments = splitThinkSegments(response.content ?? "")}
 							{#each segments as part, _i}
 								{#if part && part.startsWith("<think>")}
 									{@const trimmed = part.trimEnd()}
 									{@const isClosed = trimmed.endsWith("</think>")}
-
-									{#if isClosed}
-										<!-- Skip closed think tags - don't show reasoning content -->
-									{:else}
+									{#if !isClosed}
 										<ThinkingPlaceholder />
 									{/if}
 								{:else if part && part.trim().length > 0}
@@ -389,12 +447,6 @@ let hasClientThink = $derived(!hasServerReasoning && hasThinkSegments(message.co
 									</div>
 								{/if}
 							{/each}
-						{:else}
-							<div
-								class="prose max-w-none dark:prose-invert max-sm:prose-sm prose-headings:font-semibold prose-h1:text-lg prose-h2:text-base prose-h3:text-base prose-pre:bg-gray-800 dark:prose-pre:bg-gray-900"
-							>
-								<MarkdownRenderer content={response.content} loading={isLast && loading} />
-							</div>
 						{/if}
 
 						{#if response.routerMetadata}
@@ -597,38 +649,69 @@ let hasClientThink = $derived(!hasServerReasoning && hasThinkSegments(message.co
 		transition: all 0.3s ease;
 	}
 
-	/* Smooth scrollbar styling for multi-persona horizontal scroll */
-	.overflow-x-auto {
+	/* Fade effect for horizontal scroll container */
+	.persona-scroll-container {
+		position: relative;
+		/* Add gradient mask to fade out cards at edges */
+		mask-image: linear-gradient(
+			to right,
+			transparent 0%,
+			black 40px,
+			black calc(100% - 40px),
+			transparent 100%
+		);
+		-webkit-mask-image: linear-gradient(
+			to right,
+			transparent 0%,
+			black 40px,
+			black calc(100% - 40px),
+			transparent 100%
+		);
+	}
+
+	.persona-scroll-container {
+		scrollbar-width: none;
+	}
+
+	.persona-scroll-container:hover {
 		scrollbar-width: thin;
-		scrollbar-color: rgb(209 213 219) transparent;
+		scrollbar-color: rgba(156, 163, 175, 0.5) transparent;
 	}
 
-	.overflow-x-auto::-webkit-scrollbar {
-		height: 8px;
+	.persona-scroll-container::-webkit-scrollbar {
+		height: 6px;
 	}
 
-	.overflow-x-auto::-webkit-scrollbar-track {
+	.persona-scroll-container::-webkit-scrollbar-track {
 		background: transparent;
+		margin: 0 48px; /* Match the px-12 padding (3rem = 48px) */
 	}
 
-	.overflow-x-auto::-webkit-scrollbar-thumb {
-		background-color: rgb(209 213 219);
-		border-radius: 4px;
+	.persona-scroll-container::-webkit-scrollbar-thumb {
+		background-color: transparent;
+		border-radius: 10px;
+		transition: background-color 0.3s ease;
 	}
 
-	.overflow-x-auto::-webkit-scrollbar-thumb:hover {
-		background-color: rgb(156 163 175);
+	/* Show scrollbar thumb on hover */
+	.persona-scroll-container:hover::-webkit-scrollbar-thumb {
+		background-color: rgba(156, 163, 175, 0.5);
 	}
 
-	:global(.dark) .overflow-x-auto {
-		scrollbar-color: rgb(75 85 99) transparent;
+	.persona-scroll-container::-webkit-scrollbar-thumb:hover {
+		background-color: rgba(107, 114, 128, 0.7);
 	}
 
-	:global(.dark) .overflow-x-auto::-webkit-scrollbar-thumb {
-		background-color: rgb(75 85 99);
+	/* Dark mode */
+	:global(.dark) .persona-scroll-container:hover {
+		scrollbar-color: rgba(107, 114, 128, 0.5) transparent;
 	}
 
-	:global(.dark) .overflow-x-auto::-webkit-scrollbar-thumb:hover {
-		background-color: rgb(107 114 128);
+	:global(.dark) .persona-scroll-container:hover::-webkit-scrollbar-thumb {
+		background-color: rgba(107, 114, 128, 0.5);
+	}
+
+	:global(.dark) .persona-scroll-container::-webkit-scrollbar-thumb:hover {
+		background-color: rgba(156, 163, 175, 0.7);
 	}
 </style>
