@@ -8,7 +8,10 @@
 	import IconLoading from "../icons/IconLoading.svelte";
 	import CarbonRotate360 from "~icons/carbon/rotate-360";
 	import CarbonBranch from "~icons/carbon/branch";
-
+	import CarbonChevronDown from "~icons/carbon/chevron-down";
+	import CarbonChevronUp from "~icons/carbon/chevron-up";
+	import CarbonChevronLeft from "~icons/carbon/chevron-left";
+	import CarbonChevronRight from "~icons/carbon/chevron-right";
 	import CarbonPen from "~icons/carbon/pen";
 	import UploadedFile from "./UploadedFile.svelte";
 
@@ -20,9 +23,11 @@
 	import MarkdownRenderer from "./MarkdownRenderer.svelte";
 	import Alternatives from "./Alternatives.svelte";
 	import MessageAvatar from "./MessageAvatar.svelte";
-	import PersonaResponseCarousel from "./PersonaResponseCarousel.svelte";
 	import ThinkingPlaceholder from "./ThinkingPlaceholder.svelte";
 	import { hasThinkSegments, splitThinkSegments } from "$lib/utils/stripThinkBlocks";
+	import { goto } from "$app/navigation";
+	import { base } from "$app/paths";
+	import type { PersonaResponse } from "$lib/types/Message";
 
 	interface Props {
 		message: Message;
@@ -63,10 +68,19 @@
 	}: Props = $props();
 
 	let contentEl: HTMLElement | undefined = $state();
-	let isCopied = $state(false);
 	let messageWidth: number = $state(0);
 	let messageInfoWidth: number = $state(0);
 	let isBranching = $state(false);
+	
+	// Track expanded state for each persona card
+	let expandedStates = $state<Record<string, boolean>>({});
+	
+	// Track which persona is currently "focused" (full-width carousel mode)
+	let focusedPersonaId = $state<string | null>(null);
+	
+	// Track content elements for overflow detection
+	let contentElements = $state<Record<string, HTMLElement | null>>({});
+	const MAX_COLLAPSED_HEIGHT = 400;
 
 	$effect(() => {
 		// referenced to appease linter for currently-unused props
@@ -107,15 +121,31 @@ let thinkSegments = $derived.by(() => splitThinkSegments(message.content));
 			message.reasoning.trim().length > 0
 	);
 let hasClientThink = $derived(!hasServerReasoning && hasThinkSegments(message.content));
-let hasPersonaResponses = $derived((message.personaResponses?.length ?? 0) > 0);
 
-	$effect(() => {
-		if (isCopied) {
-			setTimeout(() => {
-				isCopied = false;
-			}, 1000);
+	// Check if using persona-based response structure (vs legacy message structure)
+	// Check for existence of the property, not length - empty array [] means "loading personas"
+	let isPersonaMode = $derived(message.personaResponses !== undefined);
+	
+	// Unified responses array: use personaResponses if available, otherwise wrap message as single response
+	let responses = $derived.by((): PersonaResponse[] => {
+		if (isPersonaMode) {
+			return message.personaResponses!;
 		}
+		// Legacy mode: convert message to PersonaResponse format for unified rendering
+		return [{
+			personaId: 'single',
+			personaName: personaName || '',
+			personaOccupation,
+			personaStance,
+			content: message.content,
+			reasoning: message.reasoning,
+			updates: message.updates,
+			routerMetadata: message.routerMetadata,
+		}];
 	});
+
+	// Multiple cards need horizontal scroll layout
+	let hasMultipleCards = $derived(responses.length > 1);
 
 	let editMode = $derived(editMsdgId === message.id);
 	$effect(() => {
@@ -170,6 +200,57 @@ let hasPersonaResponses = $derived((message.personaResponses?.length ?? 0) > 0);
 			handleBranchClick();
 		}
 	}
+
+	// Unified helper functions for card rendering
+	function toggleExpanded(personaId: string) {
+		const isCurrentlyExpanded = expandedStates[personaId];
+		
+		// In multi-card view, "Show less" should collapse all cards
+		if (hasMultipleCards && isCurrentlyExpanded) {
+			responses.forEach(r => {
+				expandedStates[r.personaId] = false;
+			});
+			focusedPersonaId = null;
+		} else {
+			// Otherwise, just toggle the individual card's state
+			expandedStates[personaId] = !isCurrentlyExpanded;
+		}
+	}
+	
+	function setFocus(personaId: string) {
+		if (hasMultipleCards) {
+			// Enter focused mode and ensure the card is expanded
+			focusedPersonaId = personaId;
+			expandedStates[personaId] = true;
+		}
+	}
+	
+	function navigateFocused(direction: 'prev' | 'next') {
+		if (!focusedPersonaId || !hasMultipleCards) return;
+		
+		const currentIndex = responses.findIndex(r => r.personaId === focusedPersonaId);
+		if (currentIndex === -1) return;
+		
+		const nextIndex = direction === 'next' ? currentIndex + 1 : currentIndex - 1;
+		if (nextIndex >= 0 && nextIndex < responses.length) {
+			focusedPersonaId = responses[nextIndex].personaId;
+			expandedStates[focusedPersonaId] = true;
+		}
+	}
+
+	function hasClientThinkInContent(content: string | undefined): boolean {
+		return content ? hasThinkSegments(content) : false;
+	}
+
+	function hasOverflow(personaId: string): boolean {
+		const element = contentElements[personaId];
+		if (!element) return false;
+		return element.scrollHeight > MAX_COLLAPSED_HEIGHT;
+	}
+
+	function openPersonaSettings(personaId: string) {
+		goto(`${base}/settings/personas/${personaId}`);
+	}
 </script>
 
 {#if message.from === "assistant"}
@@ -179,8 +260,8 @@ let hasPersonaResponses = $derived((message.personaResponses?.length ?? 0) > 0);
 		messageInfoWidth >= messageWidth
 			? 'mb-1'
 			: ''}"
-		class:w-full={hasPersonaResponses}
-		class:w-fit={!hasPersonaResponses}
+		class:w-full={isPersonaMode}
+		class:w-fit={!isPersonaMode}
 		data-message-id={message.id}
 		data-message-role="assistant"
 		role="presentation"
@@ -192,94 +273,169 @@ let hasPersonaResponses = $derived((message.personaResponses?.length ?? 0) > 0);
 		animating={isLast && loading}
 	/>
 	
-	{#if message.personaResponses && message.personaResponses.length > 0}
-		<!-- Multi-persona mode: no outer container, just carousel -->
-		<div bind:this={contentEl} class="flex-1 min-w-0">
-			<PersonaResponseCarousel 
-				personaResponses={message.personaResponses} 
-				loading={isLast && loading}
-				onretry={(personaId: string) => onretry?.({ id: message.id, content: undefined, personaId })}
-				messageId={message.id}
-				onbranch={onbranch}
-				messageBranches={messageBranches}
-				onopenbranchmodal={onopenbranchmodal}
-			/>
-		</div>
-	{:else}
-		<div
-			class="relative flex min-w-[60px] flex-col gap-2 break-words rounded-2xl border border-gray-100 bg-gradient-to-br from-gray-50 px-5 py-3.5 text-gray-600 prose-pre:my-2 dark:border-gray-800 dark:from-gray-800/80 dark:text-gray-300"
-		>
-			<!-- Persona Name Header (for single-persona mode) -->
-			{#if personaName}
-				<div class="mb-2 flex items-start justify-between border-b border-gray-200 pb-2 dark:border-gray-700">
-					<div>
-						<h3 class="text-lg font-semibold text-gray-700 dark:text-gray-200">
-							{personaName}
-						</h3>
-						{#if personaOccupation || personaStance}
-							<div class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-								{#if personaOccupation}<span>{personaOccupation}</span>{/if}{#if personaOccupation && personaStance}<span class="mx-1">•</span>{/if}{#if personaStance}<span>{personaStance}</span>{/if}
+	<div class="flex-1 min-w-0 relative">
+		<!-- Focused mode carousel navigation arrows -->
+		{#if focusedPersonaId && hasMultipleCards}
+			{@const currentIndex = responses.findIndex(r => r.personaId === focusedPersonaId)}
+			{@const hasPrev = currentIndex > 0}
+			{@const hasNext = currentIndex < responses.length - 1}
+			
+			{#if hasPrev}
+				<button
+					onclick={() => navigateFocused('prev')}
+					class="absolute -left-12 top-1/2 z-10 -translate-y-1/2 rounded-full p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200 transition-all"
+					aria-label="Previous persona"
+				>
+					<CarbonChevronLeft class="text-3xl" />
+				</button>
+			{/if}
+			
+			{#if hasNext}
+				<button
+					onclick={() => navigateFocused('next')}
+					class="absolute -right-12 top-1/2 z-10 -translate-y-1/2 rounded-full p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200 transition-all"
+					aria-label="Next persona"
+				>
+					<CarbonChevronRight class="text-3xl" />
+				</button>
+			{/if}
+		{/if}
+		
+		<!-- Container: horizontal scroll for multiple cards (unless focused), single card otherwise -->
+		<div class="{hasMultipleCards && !focusedPersonaId ? 'flex gap-3 overflow-x-auto pb-2' : ''}">
+			{#if isPersonaMode && responses.length === 0 && isLast && loading}
+				<!-- Loading state: waiting for personas to start responding -->
+				<div class="rounded-2xl border border-gray-100 bg-gradient-to-br from-gray-50 px-5 py-4 text-gray-600 dark:border-gray-800 dark:from-gray-800/80 dark:text-gray-300">
+					<IconLoading classNames="loading inline ml-2" />
+				</div>
+			{/if}
+			{#each responses as response (response.personaId)}
+				{@const isExpanded = expandedStates[response.personaId]}
+				{@const displayName = response.personaName || personaName || 'Assistant'}
+				{@const isFocused = focusedPersonaId === response.personaId}
+				{@const shouldHide = focusedPersonaId && !isFocused}
+				
+				{#if !shouldHide}
+					<!-- Card: ALL use gradient bubble styling for consistency -->
+					<div 
+						class="rounded-2xl border border-gray-100 bg-gradient-to-br from-gray-50 px-5 py-4 text-gray-600 dark:border-gray-800 dark:from-gray-800/80 dark:text-gray-300 {hasMultipleCards && !focusedPersonaId ? 'persona-card flex-shrink-0' : ''}"
+						style={hasMultipleCards && !focusedPersonaId ? `min-width: 320px; max-width: ${isExpanded ? '600px' : '420px'};` : ''}
+					>
+					<!-- Persona Header: persona name + copy button (simplified, consistent for all) -->
+					<div class="mb-3 flex items-center justify-between border-b border-gray-200 pb-2 dark:border-gray-700">
+						{#if isPersonaMode}
+							<button
+								type="button"
+								class="truncate text-left text-lg font-semibold text-gray-700 hover:text-gray-900 dark:text-gray-200 dark:hover:text-gray-50 transition-colors"
+								onclick={() => openPersonaSettings(response.personaId)}
+								aria-label="Open settings for {displayName}"
+								title="View {displayName} settings"
+							>
+								{displayName}
+							</button>
+						{:else}
+							<h3 class="truncate text-lg font-semibold text-gray-700 dark:text-gray-200">
+								{displayName}
+							</h3>
+						{/if}
+						
+						<CopyToClipBoardBtn
+							classNames="!rounded-md !p-1.5 !text-gray-500 hover:!bg-gray-100 dark:!text-gray-400 dark:hover:!bg-gray-800"
+							value={response.content}
+						/>
+					</div>
+
+					<!-- File attachments: only for legacy mode (message-level, not persona-level) -->
+					{#if !isPersonaMode && message.files?.length}
+						<div class="flex h-fit flex-wrap gap-x-5 gap-y-2 mb-2">
+							{#each message.files as file (file.value)}
+								<UploadedFile {file} canClose={false} />
+							{/each}
+						</div>
+					{/if}
+
+					<!-- Thinking indicator for server reasoning (legacy mode only) -->
+					{#if !isPersonaMode && hasServerReasoning && loading && message.content.length === 0}
+						<ThinkingPlaceholder />
+					{/if}
+
+					<!-- Content -->
+					<div 
+						bind:this={contentElements[response.personaId]}
+						class="mt-2"
+						style={isExpanded ? '' : `max-height: ${MAX_COLLAPSED_HEIGHT}px; overflow: hidden;`}
+					>
+						{#if isLast && loading && message.content.length === 0 && !hasServerReasoning}
+							<IconLoading classNames="loading inline ml-2 first:ml-0" />
+						{/if}
+
+						{#if hasClientThinkInContent(response.content)}
+							{@const segments = splitThinkSegments(response.content ?? "")}
+							{#each segments as part, _i}
+								{#if part && part.startsWith("<think>")}
+									{@const trimmed = part.trimEnd()}
+									{@const isClosed = trimmed.endsWith("</think>")}
+
+									{#if isClosed}
+										<!-- Skip closed think tags - don't show reasoning content -->
+									{:else}
+										<ThinkingPlaceholder />
+									{/if}
+								{:else if part && part.trim().length > 0}
+									<div
+										class="prose max-w-none dark:prose-invert max-sm:prose-sm prose-headings:font-semibold prose-h1:text-lg prose-h2:text-base prose-h3:text-base prose-pre:bg-gray-800 dark:prose-pre:bg-gray-900"
+									>
+										<MarkdownRenderer content={part} loading={isLast && loading} />
+									</div>
+								{/if}
+							{/each}
+						{:else}
+							<div
+								class="prose max-w-none dark:prose-invert max-sm:prose-sm prose-headings:font-semibold prose-h1:text-lg prose-h2:text-base prose-h3:text-base prose-pre:bg-gray-800 dark:prose-pre:bg-gray-900"
+							>
+								<MarkdownRenderer content={response.content} loading={isLast && loading} />
+							</div>
+						{/if}
+
+						{#if response.routerMetadata}
+							<div class="mt-2 text-xs text-gray-400 dark:text-gray-500">
+								<span class="font-medium">{response.routerMetadata.route}</span>
+								<span class="mx-1">•</span>
+								<span>{response.routerMetadata.model}</span>
 							</div>
 						{/if}
 					</div>
-				</div>
-			{/if}
 
-			{#if message.files?.length}
-				<div class="flex h-fit flex-wrap gap-x-5 gap-y-2">
-					{#each message.files as file (file.value)}
-						<UploadedFile {file} canClose={false} />
-					{/each}
-				</div>
-			{/if}
-
-		{#if hasServerReasoning && loading && message.content.length === 0}
-			<!-- Show loading indicator while reasoning is in progress -->
-			<ThinkingPlaceholder />
-		{/if}
-
-		<div bind:this={contentEl}>
-			{#if isLast && loading && message.content.length === 0 && !hasServerReasoning}
-				<IconLoading classNames="loading inline ml-2 first:ml-0" />
-			{/if}
-
-			{#if hasClientThink}
-				{#each thinkSegments as part, _i}
-					{#if part && part.startsWith("<think>")}
-						{@const trimmed = part.trimEnd()}
-						{@const isClosed = trimmed.endsWith("</think>")}
-
-					{#if isClosed}
-						<!-- Skip closed think tags - don't show reasoning content -->
-					{:else}
-						<ThinkingPlaceholder />
-					{/if}
-				{:else if part && part.trim().length > 0}
-					<div
-						class="prose max-w-none dark:prose-invert max-sm:prose-sm prose-headings:font-semibold prose-h1:text-lg prose-h2:text-base prose-h3:text-base prose-pre:bg-gray-800 dark:prose-pre:bg-gray-900"
+				<!-- Expand/Collapse button for cards with overflow -->
+				{#if hasOverflow(response.personaId)}
+					<button
+						onclick={() => {
+							// In multi-card view, "Show more" enters focus mode
+							// "Show less" collapses all and exits focus
+							!isExpanded && hasMultipleCards ? setFocus(response.personaId) : toggleExpanded(response.personaId);
+						}}
+						class="mt-3 flex w-full items-center justify-center gap-1 rounded-md border border-gray-200 bg-gray-50 py-1.5 text-sm text-gray-600 transition-colors hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700"
 					>
-						<MarkdownRenderer content={part} loading={isLast && loading} />
-					</div>
+						{#if isExpanded}
+							<CarbonChevronUp class="text-base" />
+							<span>Show less</span>
+						{:else}
+							<CarbonChevronDown class="text-base" />
+							<span>Show more</span>
+						{/if}
+					</button>
+				{/if}
+				</div>
 				{/if}
 			{/each}
-			{:else}
-				<div
-					class="prose max-w-none dark:prose-invert max-sm:prose-sm prose-headings:font-semibold prose-h1:text-lg prose-h2:text-base prose-h3:text-base prose-pre:bg-gray-800 dark:prose-pre:bg-gray-900"
-				>
-					<MarkdownRenderer content={message.content} loading={isLast && loading} />
-				</div>
-			{/if}
 		</div>
 
-		</div>
-	
-	<!-- Action bar outside the message border -->
-	{#if !isLast || !loading}
-		<div class="mt-1.5 flex items-center justify-end gap-1 px-2">
-			{#if onbranch && personaName}
-				{@const branchCount = personaBranches.length}
-				{@const hasExistingBranches = branchCount > 0}
-				
+		<!-- Branch button for legacy mode (outside card border) -->
+		{#if !isPersonaMode && (!isLast || !loading) && onbranch && personaName}
+			{@const branchCount = personaBranches.length}
+			{@const hasExistingBranches = branchCount > 0}
+			
+			<div class="mt-1.5 flex items-center justify-end gap-1 px-2">
 				<button
 					type="button"
 					class="flex items-center gap-1 rounded-md px-2 py-1.5 text-sm text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700/50 {isBranching ? 'animate-pulse' : ''}"
@@ -292,18 +448,9 @@ let hasPersonaResponses = $derived((message.personaResponses?.length ?? 0) > 0);
 						<span>({branchCount})</span>
 					{/if}
 				</button>
-			{/if}
-			<CopyToClipBoardBtn
-				onClick={() => {
-					isCopied = true;
-				}}
-				classNames="btn rounded-md p-2 text-sm text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700/50"
-				value={message.content}
-				iconClassNames="text-xs"
-			/>
-		</div>
-	{/if}
-	{/if}
+			</div>
+		{/if}
+	</div>
 
 		{#if message.routerMetadata && (!isLast || !loading)}
 			<div
@@ -444,5 +591,44 @@ let hasPersonaResponses = $derived((message.personaResponses?.length ?? 0) > 0);
 		to {
 			stroke-dashoffset: 122.9;
 		}
+	}
+
+	.persona-card {
+		transition: all 0.3s ease;
+	}
+
+	/* Smooth scrollbar styling for multi-persona horizontal scroll */
+	.overflow-x-auto {
+		scrollbar-width: thin;
+		scrollbar-color: rgb(209 213 219) transparent;
+	}
+
+	.overflow-x-auto::-webkit-scrollbar {
+		height: 8px;
+	}
+
+	.overflow-x-auto::-webkit-scrollbar-track {
+		background: transparent;
+	}
+
+	.overflow-x-auto::-webkit-scrollbar-thumb {
+		background-color: rgb(209 213 219);
+		border-radius: 4px;
+	}
+
+	.overflow-x-auto::-webkit-scrollbar-thumb:hover {
+		background-color: rgb(156 163 175);
+	}
+
+	:global(.dark) .overflow-x-auto {
+		scrollbar-color: rgb(75 85 99) transparent;
+	}
+
+	:global(.dark) .overflow-x-auto::-webkit-scrollbar-thumb {
+		background-color: rgb(75 85 99);
+	}
+
+	:global(.dark) .overflow-x-auto::-webkit-scrollbar-thumb:hover {
+		background-color: rgb(107 114 128);
 	}
 </style>
