@@ -196,7 +196,7 @@
 							messages,
 							rootMessageId: data.rootMessageId,
 						},
-						{ from: "assistant", content: "" },
+						{ from: "assistant", content: "", personaResponses: [] },
 						newUserMessageId
 					);
 				} else if (messageToRetry?.from === "assistant") {
@@ -207,7 +207,7 @@
 							messages,
 							rootMessageId: data.rootMessageId,
 						},
-						{ from: "assistant", content: "" },
+						{ from: "assistant", content: "", personaResponses: [] },
 						messageId
 					);
 				}
@@ -231,17 +231,18 @@
 					data.rootMessageId = newUserMessageId;
 				}
 
-				messageToWriteToId = addChildren(
-					{
-						messages,
-						rootMessageId: data.rootMessageId,
-					},
-					{
-						from: "assistant",
-						content: "",
-					},
-					newUserMessageId
-				);
+			messageToWriteToId = addChildren(
+				{
+					messages,
+					rootMessageId: data.rootMessageId,
+				},
+				{
+					from: "assistant",
+					content: "",
+					personaResponses: [], // Initialize empty array for persona-based responses
+				},
+				newUserMessageId
+			);
 			}
 
 			const userMessage = messages.find((message) => message.id === messageId);
