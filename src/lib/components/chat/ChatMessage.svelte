@@ -7,23 +7,22 @@
 	import CopyToClipBoardBtn from "../CopyToClipBoardBtn.svelte";
 	import IconLoading from "../icons/IconLoading.svelte";
 	import CarbonRotate360 from "~icons/carbon/rotate-360";
-	// import CarbonDownload from "~icons/carbon/download";
+	import CarbonBranch from "~icons/carbon/branch";
 
 	import CarbonPen from "~icons/carbon/pen";
 	import UploadedFile from "./UploadedFile.svelte";
 
-import {
-	MessageUpdateType,
-	type MessageReasoningUpdate,
-	MessageReasoningUpdateType,
-} from "$lib/types/MessageUpdate";
+	import {
+		MessageUpdateType,
+		type MessageReasoningUpdate,
+		MessageReasoningUpdateType,
+	} from "$lib/types/MessageUpdate";
 	import MarkdownRenderer from "./MarkdownRenderer.svelte";
-	import OpenReasoningResults from "./OpenReasoningResults.svelte";
 	import Alternatives from "./Alternatives.svelte";
 	import MessageAvatar from "./MessageAvatar.svelte";
 	import PersonaResponseCarousel from "./PersonaResponseCarousel.svelte";
-import ThinkingPlaceholder from "./ThinkingPlaceholder.svelte";
-import { hasThinkSegments, splitThinkSegments } from "$lib/utils/stripThinkBlocks";
+	import ThinkingPlaceholder from "./ThinkingPlaceholder.svelte";
+	import { hasThinkSegments, splitThinkSegments } from "$lib/utils/stripThinkBlocks";
 
 	interface Props {
 		message: Message;
@@ -39,6 +38,9 @@ import { hasThinkSegments, splitThinkSegments } from "$lib/utils/stripThinkBlock
 		personaStance?: string;
 		onretry?: (payload: { id: Message["id"]; content?: string; personaId?: string }) => void;
 		onshowAlternateMsg?: (payload: { id: Message["id"] }) => void;
+		onbranch?: (messageId: string, personaId: string) => void;
+		messageBranches?: any[]; // Branches originating from this message
+		onopenbranchmodal?: (messageId: string, personaId: string, branches: any[]) => void;
 	}
 
 	let {
@@ -55,12 +57,16 @@ import { hasThinkSegments, splitThinkSegments } from "$lib/utils/stripThinkBlock
 		personaStance,
 		onretry,
 		onshowAlternateMsg,
+		onbranch,
+		messageBranches = [],
+		onopenbranchmodal,
 	}: Props = $props();
 
 	let contentEl: HTMLElement | undefined = $state();
 	let isCopied = $state(false);
 	let messageWidth: number = $state(0);
 	let messageInfoWidth: number = $state(0);
+	let isBranching = $state(false);
 
 	$effect(() => {
 		// referenced to appease linter for currently-unused props
@@ -121,6 +127,49 @@ let hasPersonaResponses = $derived((message.personaResponses?.length ?? 0) > 0);
 			}
 		}
 	});
+
+	// Get persona ID for single persona mode
+	function getPersonaId(): string | undefined {
+		// Try to get from message personaResponses first
+		if (message.personaResponses && message.personaResponses.length > 0) {
+			return message.personaResponses[0].personaId;
+		}
+		// Fallback: this won't work perfectly but it's a reasonable attempt
+		return undefined;
+	}
+
+	// Get branches for this message's persona
+	let personaBranches = $derived.by(() => {
+		const personaId = getPersonaId();
+		if (!personaId) return messageBranches;
+		return messageBranches.filter(b => b.branchedFromPersonaId === personaId);
+	});
+
+	// Handle branch creation with animation
+	async function handleBranchClick() {
+		const personaId = getPersonaId();
+		if (!personaId || !onbranch) return;
+		
+		isBranching = true;
+		await onbranch(message.id, personaId);
+		
+		setTimeout(() => {
+			isBranching = false;
+		}, 600);
+	}
+
+	// Handle branch button click
+	function handleBranchButtonClick() {
+		const personaId = getPersonaId();
+		if (!personaId) return;
+		
+		const hasExistingBranches = personaBranches.length > 0;
+		if (hasExistingBranches) {
+			onopenbranchmodal?.(message.id, personaId, personaBranches);
+		} else {
+			handleBranchClick();
+		}
+	}
 </script>
 
 {#if message.from === "assistant"}
@@ -150,6 +199,10 @@ let hasPersonaResponses = $derived((message.personaResponses?.length ?? 0) > 0);
 				personaResponses={message.personaResponses} 
 				loading={isLast && loading}
 				onretry={(personaId: string) => onretry?.({ id: message.id, content: undefined, personaId })}
+				messageId={message.id}
+				onbranch={onbranch}
+				messageBranches={messageBranches}
+				onopenbranchmodal={onopenbranchmodal}
 			/>
 		</div>
 	{:else}
@@ -180,22 +233,15 @@ let hasPersonaResponses = $derived((message.personaResponses?.length ?? 0) > 0);
 				</div>
 			{/if}
 
-			{#if hasServerReasoning}
-				{@const summaries = reasoningUpdates
-					.filter((u) => u.subtype === MessageReasoningUpdateType.Status)
-					.map((u) => u.status)}
+		{#if hasServerReasoning && loading && message.content.length === 0}
+			<!-- Show loading indicator while reasoning is in progress -->
+			<ThinkingPlaceholder />
+		{/if}
 
-				<OpenReasoningResults
-					summary={summaries[summaries.length - 1] || ""}
-					content={message.reasoning || ""}
-					loading={loading && message.content.length === 0}
-				/>
+		<div bind:this={contentEl}>
+			{#if isLast && loading && message.content.length === 0 && !hasServerReasoning}
+				<IconLoading classNames="loading inline ml-2 first:ml-0" />
 			{/if}
-
-			<div bind:this={contentEl}>
-				{#if isLast && loading && message.content.length === 0}
-					<IconLoading classNames="loading inline ml-2 first:ml-0" />
-				{/if}
 
 			{#if hasClientThink}
 				{#each thinkSegments as part, _i}
@@ -203,44 +249,60 @@ let hasPersonaResponses = $derived((message.personaResponses?.length ?? 0) > 0);
 						{@const trimmed = part.trimEnd()}
 						{@const isClosed = trimmed.endsWith("</think>")}
 
-						{#if isClosed}
-							{@const thinkContent = trimmed.slice(7, -8)}
-							{@const summary = thinkContent.trim().split(/\n+/)[0] || "Reasoning"}
-							<OpenReasoningResults {summary} content={thinkContent} loading={false} />
-						{:else}
-							<ThinkingPlaceholder />
-						{/if}
-					{:else if part && part.trim().length > 0}
-						<div
-							class="prose max-w-none dark:prose-invert max-sm:prose-sm prose-headings:font-semibold prose-h1:text-lg prose-h2:text-base prose-h3:text-base prose-pre:bg-gray-800 dark:prose-pre:bg-gray-900"
-						>
-							<MarkdownRenderer content={part} loading={isLast && loading} />
-						</div>
+					{#if isClosed}
+						<!-- Skip closed think tags - don't show reasoning content -->
+					{:else}
+						<ThinkingPlaceholder />
 					{/if}
-				{/each}
-				{:else}
+				{:else if part && part.trim().length > 0}
 					<div
 						class="prose max-w-none dark:prose-invert max-sm:prose-sm prose-headings:font-semibold prose-h1:text-lg prose-h2:text-base prose-h3:text-base prose-pre:bg-gray-800 dark:prose-pre:bg-gray-900"
 					>
-						<MarkdownRenderer content={message.content} loading={isLast && loading} />
+						<MarkdownRenderer content={part} loading={isLast && loading} />
 					</div>
 				{/if}
-			</div>
-
-			<!-- Copy button inside the bubble -->
-			{#if !isLast || !loading}
-				<div class="mt-2 flex justify-end">
-					<CopyToClipBoardBtn
-						onClick={() => {
-							isCopied = true;
-						}}
-						classNames="btn rounded-md p-2 text-sm text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700/50"
-						value={message.content}
-						iconClassNames="text-xs"
-					/>
+			{/each}
+			{:else}
+				<div
+					class="prose max-w-none dark:prose-invert max-sm:prose-sm prose-headings:font-semibold prose-h1:text-lg prose-h2:text-base prose-h3:text-base prose-pre:bg-gray-800 dark:prose-pre:bg-gray-900"
+				>
+					<MarkdownRenderer content={message.content} loading={isLast && loading} />
 				</div>
 			{/if}
 		</div>
+
+		</div>
+	
+	<!-- Action bar outside the message border -->
+	{#if !isLast || !loading}
+		<div class="mt-1.5 flex items-center justify-end gap-1 px-2">
+			{#if onbranch && personaName}
+				{@const branchCount = personaBranches.length}
+				{@const hasExistingBranches = branchCount > 0}
+				
+				<button
+					type="button"
+					class="flex items-center gap-1 rounded-md px-2 py-1.5 text-sm text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700/50 {isBranching ? 'animate-pulse' : ''}"
+					onclick={handleBranchButtonClick}
+					aria-label={hasExistingBranches ? "Branch options" : "Branch from this response"}
+					title={hasExistingBranches ? "View or create branch" : "Branch from this response"}
+				>
+					<CarbonBranch class="text-xs" />
+					{#if hasExistingBranches}
+						<span>({branchCount})</span>
+					{/if}
+				</button>
+			{/if}
+			<CopyToClipBoardBtn
+				onClick={() => {
+					isCopied = true;
+				}}
+				classNames="btn rounded-md p-2 text-sm text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700/50"
+				value={message.content}
+				iconClassNames="text-xs"
+			/>
+		</div>
+	{/if}
 	{/if}
 
 		{#if message.routerMetadata && (!isLast || !loading)}

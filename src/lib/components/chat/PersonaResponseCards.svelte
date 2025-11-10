@@ -1,7 +1,6 @@
 <script lang="ts">
 	import type { PersonaResponse } from "$lib/types/Message";
 import MarkdownRenderer from "./MarkdownRenderer.svelte";
-import OpenReasoningResults from "./OpenReasoningResults.svelte";
 import CopyToClipBoardBtn from "../CopyToClipBoardBtn.svelte";
 import CarbonRotate360 from "~icons/carbon/rotate-360";
 import CarbonChevronDown from "~icons/carbon/chevron-down";
@@ -92,35 +91,33 @@ import { hasThinkSegments, splitThinkSegments } from "$lib/utils/stripThinkBlock
 				class="mt-2"
 				style={isExpanded ? '' : `max-height: ${MAX_COLLAPSED_HEIGHT}px; overflow: hidden;`}
 			>
-			{#if hasClientThink(response.content)}
-				{@const segments = splitThinkSegments(response.content ?? "")}
-				{#each segments as part, _i}
-					{#if part && part.startsWith("<think>")}
-						{@const trimmed = part.trimEnd()}
-						{@const isClosed = trimmed.endsWith("</think>")}
+		{#if hasClientThink(response.content)}
+			{@const segments = splitThinkSegments(response.content ?? "")}
+			{#each segments as part, _i}
+				{#if part && part.startsWith("<think>")}
+					{@const trimmed = part.trimEnd()}
+					{@const isClosed = trimmed.endsWith("</think>")}
 
-						{#if isClosed}
-							{@const thinkContent = trimmed.slice(7, -8)}
-							{@const summary = thinkContent.trim().split(/\n+/)[0] || "Reasoning"}
-							<OpenReasoningResults {summary} content={thinkContent} loading={false} />
-						{:else}
-							<ThinkingPlaceholder />
-						{/if}
-					{:else if part && part.trim().length > 0}
-						<div
-							class="prose max-w-none dark:prose-invert max-sm:prose-sm prose-headings:font-semibold prose-h1:text-lg prose-h2:text-base prose-h3:text-base prose-pre:bg-gray-800 dark:prose-pre:bg-gray-900"
-						>
-							<MarkdownRenderer content={part} {loading} />
-						</div>
+					{#if isClosed}
+						<!-- Skip closed think tags - don't show reasoning content -->
+					{:else}
+						<ThinkingPlaceholder />
 					{/if}
-				{/each}
-				{:else}
+				{:else if part && part.trim().length > 0}
 					<div
 						class="prose max-w-none dark:prose-invert max-sm:prose-sm prose-headings:font-semibold prose-h1:text-lg prose-h2:text-base prose-h3:text-base prose-pre:bg-gray-800 dark:prose-pre:bg-gray-900"
 					>
-						<MarkdownRenderer content={response.content} {loading} />
+						<MarkdownRenderer content={part} {loading} />
 					</div>
 				{/if}
+			{/each}
+			{:else}
+				<div
+					class="prose max-w-none dark:prose-invert max-sm:prose-sm prose-headings:font-semibold prose-h1:text-lg prose-h2:text-base prose-h3:text-base prose-pre:bg-gray-800 dark:prose-pre:bg-gray-900"
+				>
+					<MarkdownRenderer content={response.content} {loading} />
+				</div>
+			{/if}
 
 				{#if response.routerMetadata}
 					<div class="mt-2 text-xs text-gray-400 dark:text-gray-500">
