@@ -1,6 +1,6 @@
 {
-	"name": "chat-ui",
-	"version": "0.20.0",
+	"name": "plurality",
+	"version": "0.1.0",
 	"private": true,
 	"packageManager": "npm@9.5.0",
 	"scripts": {
@@ -76,6 +76,7 @@
 		"autoprefixer": "^10.4.14",
 		"date-fns": "^2.29.3",
 		"dotenv": "^16.5.0",
+		"elkjs": "^0.11.0",
 		"file-type": "^21.0.0",
 		"handlebars": "^4.7.8",
 		"highlight.js": "^11.7.0",
