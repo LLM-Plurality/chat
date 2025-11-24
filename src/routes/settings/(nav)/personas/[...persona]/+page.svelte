@@ -125,20 +125,21 @@
 
 	// Options for SelectFields
 	const ageOptions = ["18-25", "26-35", "36-45", "46-55", "56-65", "66+"];
-	const genderOptions = ["Male", "Female", "Prefer not to say"];
-	const incomeBracketOptions = ["Low", "Middle", "High", "Comfortable", "Struggling"];
+	const genderOptions = ["Male", "Female"];
+	const incomeBracketOptions = ["Low income", "Middle class", "Wealthy", "Top 1%"];
 	const politicalLeaningsOptions = ["Liberal", "Conservative", "Moderate", "Libertarian", "Non-affiliated", "Progressive"];
 	const geographicContextOptions = ["Rural", "Urban", "Suburban"];
 
 	// Suggestions for ComboboxFields
 	const jobSectorSuggestions = [
-		"Healthcare provider",
-		"Small business owner",
-		"Tech worker",
-		"Teacher",
-		"Unemployed/Retired",
 		"Government worker",
-		"Student"
+		"Healthcare provider",
+        "Retired",
+		"Small business owner",
+		"Student",
+		"Teacher",
+		"Tech worker",
+		"Unemployed"
 	];
 	const stanceSuggestions = [
 		"In Favor of Medicare for All",
@@ -148,7 +149,7 @@
 		"Status Quo"
 	];
 	const communicationStyleSuggestions = [
-		"Direct",
+		"Concise",
 		"Technical/Jargon use",
 		"Informal",
 		"Philosophical",
