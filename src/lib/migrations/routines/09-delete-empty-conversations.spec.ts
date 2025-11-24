@@ -16,6 +16,8 @@ const userData = {
 	name: "name",
 	avatarUrl: "https://example.com/avatar.png",
 	hfUserId: "9999999999",
+	authProvider: "huggingface",
+	authId: "9999999999",
 } satisfies User;
 Object.freeze(userData);
 
