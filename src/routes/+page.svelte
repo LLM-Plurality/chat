@@ -3,15 +3,15 @@
 	import { base } from "$app/paths";
 	import { page } from "$app/state";
 	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
-
-	const publicConfig = usePublicConfig();
-
 	import ChatWindow from "$lib/components/chat/ChatWindow.svelte";
 	import { ERROR_MESSAGES, error } from "$lib/stores/errors";
 	import { pendingMessage } from "$lib/stores/pendingMessage";
 	import { useSettingsStore } from "$lib/stores/settings.js";
 	import { findCurrentModel } from "$lib/utils/models";
+	import { resetActivePersonasToDefaults } from "$lib/utils/personaDefaults";
 	import { onMount } from "svelte";
+
+const publicConfig = usePublicConfig();
 
 	let { data } = $props();
 
@@ -24,6 +24,12 @@
 	async function createConversation(message: string) {
 		try {
 			loading = true;
+
+			await resetActivePersonasToDefaults(
+				settings,
+				$settings.personas,
+				$settings.activePersonas
+			);
 
 			// check if $settings.activeModel is a valid model
 			// else check if it's an assistant, and use that model
