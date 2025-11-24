@@ -25,30 +25,34 @@
 
 	// Initialize multimodal override for this model if not set yet
 	$effect(() => {
-		if (!$settings.multimodalOverrides) {
-			$settings.multimodalOverrides = {};
-		}
 		const modelId = page.params.model;
-		if ($settings.multimodalOverrides[modelId] === undefined && model) {
-			// Default to the model's advertised capability
-			$settings.multimodalOverrides = {
-				...$settings.multimodalOverrides,
-				[modelId]: !!model.multimodal,
-			};
+		if (modelId) {
+			if (!$settings.multimodalOverrides) {
+				$settings.multimodalOverrides = {};
+			}
+			if ($settings.multimodalOverrides[modelId] === undefined && model) {
+				// Default to the model's advertised capability
+				$settings.multimodalOverrides = {
+					...$settings.multimodalOverrides,
+					[modelId]: !!model.multimodal,
+				};
+			}
 		}
 	});
 
 	// Ensure hidePromptExamples has an entry for this model so the switch can bind safely
 	$effect(() => {
-		if (!$settings.hidePromptExamples) {
-			$settings.hidePromptExamples = {};
-		}
 		const modelId = page.params.model;
-		if ($settings.hidePromptExamples[modelId] === undefined) {
-			$settings.hidePromptExamples = {
-				...$settings.hidePromptExamples,
-				[modelId]: false,
-			};
+		if (modelId) {
+			if (!$settings.hidePromptExamples) {
+				$settings.hidePromptExamples = {};
+			}
+			if ($settings.hidePromptExamples[modelId] === undefined) {
+				$settings.hidePromptExamples = {
+					...$settings.hidePromptExamples,
+					[modelId]: false,
+				};
+			}
 		}
 	});
 </script>
@@ -174,7 +178,7 @@
 					</div>
 					<Switch
 						name="forceMultimodal"
-						bind:checked={$settings.multimodalOverrides[page.params.model]}
+						bind:checked={$settings.multimodalOverrides[page.params.model ?? ""]}
 					/>
 				</div>
 
@@ -190,7 +194,7 @@
 						</div>
 						<Switch
 							name="hidePromptExamples"
-							bind:checked={$settings.hidePromptExamples[page.params.model]}
+							bind:checked={$settings.hidePromptExamples[page.params.model ?? ""]}
 						/>
 					</div>
 				{/if}
