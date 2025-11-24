@@ -41,15 +41,14 @@ export async function generateTitle(prompt: string, modelId?: string, opts?: { a
 
 	return await getReturnFromGenerator(
 		generateFromDefaultEndpoint({
-			messages: [{ from: "user", content: `Prompt to summarize: "${prompt}"` }],
+			messages: [{ from: "user", content: `Prompt to craft the title from: "${prompt}"` }],
 			preprompt: `You are a titling assistant.
-	Summarize the user's request into a short title of at most 4 words.
-	Use the SAME language as the user's message.
-	Do not answer the question.
-	Do not include the word prompt into your response.
-	Do not say "summarize" or "summary" in the title.
-	Do not include quotes, emojis, hashtags or trailing punctuation.
-	Return ONLY the title text.`,
+    Create a natural, concise title (max 4 words) that reflects the user's request.
+    Use the same language as the user.
+    Never answer the request.
+    NEVER respond with the words “summary,” “summarize,” “prompt,” or any synonyms in the title.
+    No quotes, emojis, hashtags, or trailing punctuation.
+    Return only the title text.`,
 			generateSettings: {
 				max_tokens: 30,
 			},
