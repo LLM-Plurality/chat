@@ -151,7 +151,7 @@
 				onMessageCreated: (id) => {
 					targetMessageId = id;
 				},
-				updateBranchState,
+				updateBranchState: (val: unknown) => updateBranchState(val as typeof branchState),
 				invalidate,
 				goto,
 			},
