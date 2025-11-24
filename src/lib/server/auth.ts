@@ -259,6 +259,8 @@ export async function authenticateRequest(
 				hfUserId: email,
 				avatarUrl: "",
 				logoutDisabled: true,
+				authProvider: "oidc",
+				authId: email,
 			},
 			sessionId,
 			secretSessionId,
