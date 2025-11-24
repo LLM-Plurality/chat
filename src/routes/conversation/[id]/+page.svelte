@@ -2,13 +2,14 @@
 	import ChatWindow from "$lib/components/chat/ChatWindow.svelte";
 	import { pendingMessage } from "$lib/stores/pendingMessage";
 	import { isAborted } from "$lib/stores/isAborted";
-	import { onMount } from "svelte";
+	import { onMount, tick, untrack } from "svelte";
 	import { page } from "$app/state";
-	import { beforeNavigate, goto, invalidateAll } from "$app/navigation";
+	import { beforeNavigate, goto, invalidate } from "$app/navigation";
 	import { base } from "$app/paths";
 	import { ERROR_MESSAGES, error } from "$lib/stores/errors";
 	import { findCurrentModel } from "$lib/utils/models";
-	import type { Message } from "$lib/types/Message";
+	import { UrlDependency } from "$lib/types/UrlDependency";
+	import { type Message, MessageRole } from "$lib/types/Message";
 	import {
 		MessageReasoningUpdateType,
 		MessageUpdateStatus,
@@ -30,6 +31,16 @@
 	import type { TreeNode, TreeId } from "$lib/utils/tree/tree";
 	import "katex/dist/katex.min.css";
 	import { updateDebouncer } from "$lib/utils/updates.js";
+	import { setConversationTree, clearConversationTree } from "$lib/stores/conversationTree";
+	import { resetActivePersonasToDefaults } from "$lib/utils/personaDefaults";
+	import { 
+		createMessagesPath, 
+		createMessagesAlternatives, 
+		detectCurrentBranch, 
+		filterMessagesByBranch 
+	} from "$lib/utils/tree/branching";
+	import { mergeMessages } from "$lib/utils/mergeMessages";
+	import { writeMessage as writeMessageLogic } from "$lib/utils/messageSender";
 
 	let { data = $bindable() } = $props();
 
@@ -44,62 +55,32 @@
 		conversations = data.conversations;
 	});
 
-	function createMessagesPath<T>(messages: TreeNode<T>[], msgId?: TreeId): TreeNode<T>[] {
+	function getMessagesPath(messages: any[], msgId?: string) {
 		if (initialRun) {
 			if (!msgId && page.url.searchParams.get("leafId")) {
 				msgId = page.url.searchParams.get("leafId") as string;
 				page.url.searchParams.delete("leafId");
+			}
+			if (!msgId && page.url.searchParams.get("msgId")) {
+				msgId = page.url.searchParams.get("msgId") as string;
 			}
 			if (!msgId && browser && localStorage.getItem("leafId")) {
 				msgId = localStorage.getItem("leafId") as string;
 			}
 			initialRun = false;
 		}
-
-		const msg = messages.find((msg) => msg.id === msgId) ?? messages.at(-1);
-		if (!msg) return [];
-		// ancestor path
-		const { ancestors } = msg;
-		const path = [];
-		if (ancestors?.length) {
-			for (const ancestorId of ancestors) {
-				const ancestor = messages.find((msg) => msg.id === ancestorId);
-				if (ancestor) {
-					path.push(ancestor);
-				}
-			}
-		}
-
-		// push the node itself in the middle
-		path.push(msg);
-
-		// children path
-		let childrenIds = msg.children;
-		while (childrenIds?.length) {
-			let lastChildId = childrenIds.at(-1);
-			const lastChild = messages.find((msg) => msg.id === lastChildId);
-			if (lastChild) {
-				path.push(lastChild);
-			}
-			childrenIds = lastChild?.children;
-		}
-
-		return path;
-	}
-
-	function createMessagesAlternatives<T>(messages: TreeNode<T>[]): TreeId[][] {
-		const alternatives = [];
-		for (const message of messages) {
-			if (message.children?.length) {
-				alternatives.push(message.children);
-			}
-		}
-		return alternatives;
+		return createMessagesPath(messages, msgId);
 	}
 
 	async function convFromShared() {
 		try {
 			loading = true;
+
+			await resetActivePersonasToDefaults(
+				settings,
+				$settings.personas,
+				$settings.activePersonas
+			);
 			const res = await fetch(`${base}/conversation`, {
 				method: "POST",
 				headers: {
@@ -126,7 +107,7 @@
 			throw err;
 		}
 	}
-	// this function is used to send new message to the backends
+	
 	async function writeMessage({
 		prompt,
 		messageId = messagesPath.at(-1)?.id ?? undefined,
@@ -140,297 +121,78 @@
 		isContinue?: boolean;
 		personaId?: string;
 	}): Promise<void> {
-		try {
-			$isAborted = false;
-			loading = true;
-			pending = true;
-			const base64Files = await Promise.all(
-				(files ?? []).map((file) =>
-					file2base64(file).then((value) => ({
-						type: "base64" as const,
-						value,
-						mime: file.type,
-						name: file.name,
-					}))
-				)
-			);
-
-			let messageToWriteToId: Message["id"] | undefined = undefined;
-			// used for building the prompt, subtree of the conversation that goes from the latest message to the root
-
-			if (isContinue && messageId) {
-				if ((messages.find((msg) => msg.id === messageId)?.children?.length ?? 0) > 0) {
-					$error = "Can only continue the last message";
-				} else {
-					messageToWriteToId = messageId;
-				}
-			} else if (isRetry && messageId) {
-				// two cases, if we're retrying a user message with a newPrompt set,
-				// it means we're editing a user message
-				// if we're retrying on an assistant message, newPrompt cannot be set
-				// it means we're retrying the last assistant message for a new answer
-
-				const messageToRetry = messages.find((message) => message.id === messageId);
-
-				if (!messageToRetry) {
-					$error = "Message not found";
-				}
-
-				if (messageToRetry?.from === "user" && prompt) {
-					// add a sibling to this message from the user, with the alternative prompt
-					// add a children to that sibling, where we can write to
-					const newUserMessageId = addSibling(
-						{
-							messages,
-							rootMessageId: data.rootMessageId,
-						},
-						{
-							from: "user",
-							content: prompt,
-							files: messageToRetry.files,
-						},
-						messageId
-					);
-					messageToWriteToId = addChildren(
-						{
-							messages,
-							rootMessageId: data.rootMessageId,
-						},
-						{ from: "assistant", content: "", personaResponses: [] },
-						newUserMessageId
-					);
-				} else if (messageToRetry?.from === "assistant") {
-					// we're retrying an assistant message, to generate a new answer
-					// just add a sibling to the assistant answer where we can write to
-					messageToWriteToId = addSibling(
-						{
-							messages,
-							rootMessageId: data.rootMessageId,
-						},
-						{ from: "assistant", content: "", personaResponses: [] },
-						messageId
-					);
-				}
-			} else {
-				// just a normal linear conversation, so we add the user message
-				// and the blank assistant message back to back
-				const newUserMessageId = addChildren(
-					{
-						messages,
-						rootMessageId: data.rootMessageId,
-					},
-					{
-						from: "user",
-						content: prompt ?? "",
-						files: base64Files,
-					},
-					messageId
-				);
-
-				if (!data.rootMessageId) {
-					data.rootMessageId = newUserMessageId;
-				}
-
-			messageToWriteToId = addChildren(
-				{
-					messages,
-					rootMessageId: data.rootMessageId,
+		await writeMessageLogic(
+			{
+				page: { params: { id: page.params.id! } },
+				messages,
+				messagesPath: messagesPath as Message[],
+				data: { rootMessageId: data.rootMessageId ?? "" },
+				files,
+				settings: {
+					disableStream: $settings.disableStream ?? false,
+					personas: $settings.personas,
 				},
-				{
-					from: "assistant",
-					content: "",
-					personaResponses: [], // Initialize empty array for persona-based responses
-				},
-				newUserMessageId
-			);
-			}
-
-			const userMessage = messages.find((message) => message.id === messageId);
-			const messageToWriteTo = messages.find((message) => message.id === messageToWriteToId);
-			if (!messageToWriteTo) {
-				throw new Error("Message to write to not found");
-			}
-
-			const messageUpdatesAbortController = new AbortController();
-
-			const messageUpdatesIterator = await fetchMessageUpdates(
-				page.params.id,
-				{
-					base,
-					inputs: prompt,
-					messageId,
-					isRetry,
-					isContinue,
-					files: isRetry ? userMessage?.files : base64Files,
-					personaId,
-				},
-				messageUpdatesAbortController.signal
-			).catch((err) => {
-				error.set(err.message);
-			});
-			if (messageUpdatesIterator === undefined) return;
-
-		files = [];
-		let buffer = "";
-		// Initialize lastUpdateTime outside the loop to persist between updates
-		let lastUpdateTime = new Date();
-
-		let reasoningBuffer = "";
-		let reasoningLastUpdate = new Date();
-
-		// Per-persona buffers for multi-persona mode
-		const personaBuffers = new Map<string, string>();
-		const personaLastUpdateTimes = new Map<string, Date>();
-
-		for await (const update of messageUpdatesIterator) {
-			if ($isAborted) {
-				messageUpdatesAbortController.abort();
-				return;
-			}
-
-			// Remove null characters added due to remote keylogging prevention
-			// See server code for more details
-			if (update.type === MessageUpdateType.Stream) {
-				update.token = update.token.replaceAll("\0", "");
-			}
-
-			const isHighFrequencyUpdate =
-				(update.type === MessageUpdateType.Reasoning &&
-					update.subtype === MessageReasoningUpdateType.Stream) ||
-				update.type === MessageUpdateType.Stream ||
-				update.type === MessageUpdateType.Persona ||
-				(update.type === MessageUpdateType.Status &&
-					update.status === MessageUpdateStatus.KeepAlive);
-
-			if (!isHighFrequencyUpdate) {
-				messageToWriteTo.updates = [...(messageToWriteTo.updates ?? []), update];
-			}
-			const currentTime = new Date();
-
-			// Handle multi-persona updates
-			if (update.type === MessageUpdateType.Persona) {
-				// Initialize personaResponses if not already present
-				if (!messageToWriteTo.personaResponses) {
-					messageToWriteTo.personaResponses = [];
-				}
-
-			// Find or create persona response
-			let personaResponse = messageToWriteTo.personaResponses.find(
-				(pr) => pr.personaId === update.personaId
-			);
-			if (!personaResponse) {
-				personaResponse = {
-					personaId: update.personaId,
-					personaName: update.personaName,
-					personaOccupation: update.personaOccupation,
-					personaStance: update.personaStance,
-					content: "",
-				};
-				messageToWriteTo.personaResponses.push(personaResponse);
-			}
-
-				// Handle different update types for this persona
-				if (update.updateType === "stream" && update.token && !$settings.disableStream) {
-					const personaBuffer = personaBuffers.get(update.personaId) || "";
-					const newBuffer = personaBuffer + update.token;
-					personaBuffers.set(update.personaId, newBuffer);
-
-					const lastUpdate = personaLastUpdateTimes.get(update.personaId) || new Date(0);
-					if (currentTime.getTime() - lastUpdate.getTime() > updateDebouncer.maxUpdateTime) {
-						personaResponse.content += newBuffer;
-						personaBuffers.set(update.personaId, "");
-						personaLastUpdateTimes.set(update.personaId, currentTime);
+				isAborted: () => $isAborted,
+				branchState,
+				
+				// Setters
+				setLoading: (val) => (loading = val),
+				setPending: (val) => (pending = val),
+				setFiles: (val) => (files = val),
+				setError: (val) => ($error = val),
+				setIsAborted: (val) => ($isAborted = val),
+				setTitleUpdate: (val) => ($titleUpdate = val),
+				onTitleUpdate: (title) => {
+					const convInData = conversations.find(({ id }) => id === page.params.id);
+					if (convInData) {
+						convInData.title = title;
 					}
-					pending = false;
-				} else if (update.updateType === "finalAnswer" && update.text) {
-					personaResponse.content = update.text;
-					personaResponse.interrupted = update.interrupted;
-				} else if (update.updateType === "routerMetadata" && update.route && update.model) {
-					personaResponse.routerMetadata = {
-						route: update.route,
-						model: update.model,
-					};
-				} else if (update.updateType === "status" && update.error) {
-					// Handle persona errors - mark as interrupted so loading can stop
-					personaResponse.interrupted = true;
-					personaResponse.content = personaResponse.content || `Error: ${update.error}`;
-				}
-			} else if (update.type === MessageUpdateType.Stream && !$settings.disableStream) {
-				buffer += update.token;
-				// Check if this is the first update or if enough time has passed
-				if (currentTime.getTime() - lastUpdateTime.getTime() > updateDebouncer.maxUpdateTime) {
-					messageToWriteTo.content += buffer;
-					buffer = "";
-					lastUpdateTime = currentTime;
-				}
-				pending = false;
-			} else if (
-				update.type === MessageUpdateType.Status &&
-				update.status === MessageUpdateStatus.Error
-			) {
-				$error = update.message ?? "An error has occurred";
-			} else if (update.type === MessageUpdateType.Title) {
-				const convInData = conversations.find(({ id }) => id === page.params.id);
-				if (convInData) {
-					convInData.title = update.title;
-
-					$titleUpdate = {
-						title: update.title,
-						convId: page.params.id,
-					};
-				}
-			} else if (update.type === MessageUpdateType.File) {
-				messageToWriteTo.files = [
-					...(messageToWriteTo.files ?? []),
-					{ type: "hash", value: update.sha, mime: update.mime, name: update.name },
-				];
-			} else if (update.type === MessageUpdateType.Reasoning) {
-				if (!messageToWriteTo.reasoning) {
-					messageToWriteTo.reasoning = "";
-				}
-				if (update.subtype === MessageReasoningUpdateType.Stream) {
-					reasoningBuffer += update.token;
-					if (
-						currentTime.getTime() - reasoningLastUpdate.getTime() >
-						updateDebouncer.maxUpdateTime
-					) {
-						messageToWriteTo.reasoning += reasoningBuffer;
-						reasoningBuffer = "";
-						reasoningLastUpdate = currentTime;
-					}
-				}
-			} else if (update.type === MessageUpdateType.RouterMetadata) {
-				// Update router metadata immediately when received
-				messageToWriteTo.routerMetadata = {
-					route: update.route,
-					model: update.model,
-				};
-			} else if (update.type === MessageUpdateType.FinalAnswer) {
-				// Handle final answer - set authoritative final content from server
-				messageToWriteTo.content = update.text;
-				messageToWriteTo.interrupted = update.interrupted;
-				pending = false;
+				},
+				onMessageCreated: (id) => {
+					targetMessageId = id;
+				},
+				updateBranchState,
+				invalidate,
+				goto,
+			},
+			{
+				prompt,
+				messageId,
+				isRetry,
+				isContinue,
+				personaId,
 			}
-		}
-		} catch (err) {
-			if (err instanceof Error && err.message.includes("overloaded")) {
-				$error = "Too much traffic, please try again.";
-			} else if (err instanceof Error && err.message.includes("429")) {
-				$error = ERROR_MESSAGES.rateLimited;
-			} else if (err instanceof Error) {
-				$error = err.message;
-			} else {
-				$error = ERROR_MESSAGES.default;
-			}
-			console.error(err);
-		} finally {
-			loading = false;
-			pending = false;
-			await invalidateAll();
-		}
+		);
 	}
 
 	onMount(async () => {
+		if (browser) {
+			const trackingKey = `branchTracking_${page.params.id}`;
+			const storedTracking = localStorage.getItem(trackingKey);
+			if (storedTracking) {
+				try {
+					const parsed = JSON.parse(storedTracking);
+					previousBranchMessageId = parsed.messageId ?? null;
+					previousBranchPersonaId = parsed.personaId ?? null;
+				} catch (e) {
+					console.error("Failed to parse stored tracking:", e);
+					localStorage.removeItem(trackingKey);
+				}
+			}
+			
+			const storageKey = `branchState_${page.params.id}`;
+			const storedBranch = localStorage.getItem(storageKey);
+			if (storedBranch) {
+				try {
+					const parsed = JSON.parse(storedBranch);
+					updateBranchState(parsed);
+				} catch (e) {
+					console.error("Failed to parse stored branch state:", e);
+					localStorage.removeItem(storageKey);
+				}
+			}
+		}
+
 		// only used in case of creating new conversations (from the parent POST endpoint)
 		if ($pendingMessage) {
 			files = $pendingMessage.files;
@@ -454,7 +216,32 @@
 
 	async function onRetry(payload: { id: Message["id"]; content?: string; personaId?: string }) {
 		const lastMsgId = payload.id;
-		messagesPath = createMessagesPath(messages, lastMsgId);
+		targetMessageId = lastMsgId;
+
+		// Restore active personas from the original message's responses if this is an edit
+		if (payload.content) {
+			const msgToEdit = messages.find((m) => m.id === payload.id);
+			if (msgToEdit?.children) {
+				const childMessages = msgToEdit.children
+					.map((childId) => messages.find((m) => m.id === childId))
+					.filter((m) => m !== undefined) as Message[];
+
+				const previousPersonas = new Set<string>();
+
+				for (const child of childMessages) {
+					// Check for unified persona responses
+					if (child.personaResponses) {
+						child.personaResponses.forEach((pr) => previousPersonas.add(pr.personaId));
+					}
+				}
+
+				if (previousPersonas.size > 0) {
+					settings.instantSet({
+						activePersonas: Array.from(previousPersonas),
+					});
+				}
+			}
+		}
 
 		if (!data.shared) {
 			await writeMessage({
@@ -483,7 +270,7 @@
 
 	async function onShowAlternateMsg(payload: { id: Message["id"] }) {
 		const msgId = payload.id;
-		messagesPath = createMessagesPath(messages, msgId);
+		targetMessageId = msgId;
 	}
 
 	async function onContinue(payload: { id: Message["id"] }) {
@@ -506,13 +293,156 @@
 	}
 
 	const settings = useSettingsStore();
-	let messages = $state(data.messages);
-	$effect(() => {
-		messages = data.messages;
-	});
 
+	// Branch state: tracks when we're creating a new branch
+	let branchState = $state<{
+		messageId: string;
+		personaId: string;
+		personaName: string;
+	} | null>(null);
+
+// Delay persona syncing to avoid clobbering user edits
+let branchSyncTimeout: ReturnType<typeof setTimeout> | null = null;
+
+	// Track which message to display (for navigation within tree)
+	let targetMessageId = $state<string | undefined>(undefined);
+	// Removed: let pendingNavigationId = $state<string | null>(null);
+	
+	// Persist branch state to localStorage whenever it changes
+	function updateBranchState(newState: typeof branchState) {
+		branchState = newState;
+		
+		if (browser) {
+			const storageKey = `branchState_${page.params.id}`;
+			if (newState) {
+				localStorage.setItem(storageKey, JSON.stringify(newState));
+			} else {
+				localStorage.removeItem(storageKey);
+			}
+		}
+	}
+
+	function onBranch(messageId: string, personaId: string) {
+		const persona = $settings.personas?.find((p) => p.id === personaId);
+		
+		// Validate branch point exists
+		const branchPointMessage = messages.find(m => m.id === messageId);
+		if (!branchPointMessage) {
+			console.error('Branch point not found:', messageId.slice(0, 8));
+			$error = "Cannot create branch: message not found.";
+			return;
+		}
+		
+		// Set branch state - writeMessage will use this when user sends a message
+		updateBranchState({
+			messageId,
+			personaId,
+			personaName: persona?.name || personaId,
+		});
+		
+		// Navigate to branch point
+		targetMessageId = messageId;
+		
+		// Focus input for user to type
+		setTimeout(() => {
+			const textarea = document.querySelector('textarea[placeholder]');
+			if (textarea instanceof HTMLTextAreaElement) {
+				textarea.focus();
+			}
+		}, 100);
+	}
+
+	let messages = $state(data.messages);
+	let lastDataMessages = data.messages;
+
+	$effect(() => {
+		// If the server messages array hasn't changed identity, don't touch local state.
+		if (data.messages === lastDataMessages) return;
+		
+		lastDataMessages = data.messages;
+
+		// Only sync from server if we are NOT currently writing/streaming a message
+		if (!loading && !pending) {
+			messages = data.messages;
+		}
+		
+		// Restore branchState from localStorage after data reload
+		untrack(() => {
+			const currentBranchState = branchState;
+			if (browser && !currentBranchState) {
+				const storageKey = `branchState_${page.params.id}`;
+				const storedBranch = localStorage.getItem(storageKey);
+				if (storedBranch) {
+					try {
+						const parsed = JSON.parse(storedBranch);
+						updateBranchState(parsed);
+					} catch (e) {
+						console.error("Failed to restore branch state:", e);
+					}
+				}
+			}
+		});
+	});
+	
+	// Track last processed msgId to prevent infinite loops
+	let lastProcessedMsgId = $state<string | null>(null);
+	
+	// Handle tree node navigation via URL parameters
+	$effect(() => {
+		const url = page.url;
+		const msgIdParam = url.searchParams.get("msgId");
+		const keepBranch = url.searchParams.get("keepBranch") === "true";
+		
+		if (!msgIdParam) {
+			lastProcessedMsgId = null;
+			return;
+		}
+		
+		if (messages.length === 0) return;
+		if (msgIdParam === lastProcessedMsgId) return;
+		
+		const clickedMessage = messages.find(m => m.id === msgIdParam);
+		if (!clickedMessage) return;
+		
+		lastProcessedMsgId = msgIdParam;
+		
+		// Clean up URL parameters
+		const urlObj = new URL(page.url);
+		const shouldScroll = urlObj.searchParams.get('scrollTo') === 'true';
+		urlObj.searchParams.delete("msgId");
+		urlObj.searchParams.delete('scrollTo');
+		urlObj.searchParams.delete('keepBranch');
+		goto(urlObj.pathname + urlObj.search, { replaceState: true, noScroll: true });
+		
+		if (keepBranch) {
+			targetMessageId = msgIdParam;
+		} else {
+			if (clickedMessage.branchedFrom) {
+				const persona = $settings.personas?.find((p) => p.id === clickedMessage.branchedFrom!.personaId);
+				updateBranchState({
+					messageId: clickedMessage.branchedFrom.messageId,
+					personaId: clickedMessage.branchedFrom.personaId,
+					personaName: persona?.name || clickedMessage.branchedFrom.personaId,
+				});
+			} else {
+				updateBranchState(null);
+			}
+			
+			targetMessageId = msgIdParam;
+		}
+		
+		if (shouldScroll) {
+			setTimeout(() => {
+				const messageElement = document.querySelector(`[data-message-id="${msgIdParam}"]`);
+				if (messageElement) {
+					messageElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+				}
+			}, 200);
+		}
+	});
+	
 	function isConversationStreaming(msgs: Message[]): boolean {
-		const lastAssistant = [...msgs].reverse().find((msg) => msg.from === "assistant");
+		const lastAssistant = [...msgs].reverse().find((msg) => msg.from === MessageRole.Assistant);
 		if (!lastAssistant) return false;
 		
 		// Check for errors
@@ -559,13 +489,94 @@
 		}
 
 		if (!streaming && browser) {
-			removeBackgroundGeneration(page.params.id);
+			removeBackgroundGeneration(page.params.id!);
 		}
 	});
 
-	// create a linear list of `messagesPath` from `messages` that is a tree of threaded messages
-	let messagesPath = $derived(createMessagesPath(messages));
+	// Filter messages by branch first, THEN create the path
+	let filteredMessages = $derived(filterMessagesByBranch(messages, branchState || detectCurrentBranch(messages, null, $settings.personas)));
+	
+	let messagesPath = $derived(getMessagesPath(filteredMessages, targetMessageId));
 	let messagesAlternatives = $derived(createMessagesAlternatives(messages));
+	
+	// Detect active branch for UI display
+	let activeBranch = $derived(detectCurrentBranch(messagesPath, branchState, $settings.personas));
+
+	// Keep track of pre-branch activePersonas for restoration
+	let preBranchActivePersonas = $state<string[]>([]);
+	
+	// Track previous branch values to detect actual changes
+	let previousBranchMessageId = $state<string | null>(null);
+	let previousBranchPersonaId = $state<string | null>(null);
+	
+	
+	// Persist tracking variables to localStorage
+	$effect(() => {
+		if (browser) {
+			const trackingKey = `branchTracking_${page.params.id}`;
+			if (previousBranchMessageId || previousBranchPersonaId) {
+				localStorage.setItem(trackingKey, JSON.stringify({
+					messageId: previousBranchMessageId,
+					personaId: previousBranchPersonaId,
+				}));
+			} else {
+				localStorage.removeItem(trackingKey);
+			}
+		}
+	});
+	
+	// Sync activePersonas with current branch
+	$effect(() => {
+		if (!page.url.pathname.includes('/conversation/')) {
+			return;
+		}
+		
+		const currentMessageId = branchState?.messageId ?? null;
+		const currentPersonaId = branchState?.personaId ?? null;
+		
+		const branchChanged = 
+			previousBranchMessageId !== currentMessageId ||
+			previousBranchPersonaId !== currentPersonaId;
+		
+		if (branchState && branchChanged) {
+			// Save original activePersonas when first entering any branch
+			if (previousBranchMessageId === null && preBranchActivePersonas.length === 0) {
+				preBranchActivePersonas = [...$settings.activePersonas];
+			}
+			
+			if (branchSyncTimeout) {
+				clearTimeout(branchSyncTimeout);
+				branchSyncTimeout = null;
+			}
+			
+			// Delay persona sync slightly so manual changes can settle
+			branchSyncTimeout = setTimeout(() => {
+				settings.instantSet({
+					activePersonas: [currentPersonaId!],
+				});
+				
+				previousBranchMessageId = currentMessageId;
+				previousBranchPersonaId = currentPersonaId;
+				branchSyncTimeout = null;
+			}, 250);
+		} else if (!branchState && (previousBranchMessageId !== null || previousBranchPersonaId !== null)) {
+			// Exiting branch - restore original activePersonas
+			if (branchSyncTimeout) {
+				clearTimeout(branchSyncTimeout);
+				branchSyncTimeout = null;
+			}
+			
+			if (preBranchActivePersonas.length > 0) {
+				settings.instantSet({
+					activePersonas: preBranchActivePersonas,
+				});
+				preBranchActivePersonas = [];
+			}
+			
+			previousBranchMessageId = null;
+			previousBranchPersonaId = null;
+		}
+	});
 
 	$effect(() => {
 		if (browser && messagesPath.at(-1)?.id) {
@@ -580,7 +591,7 @@
 			navigation.to?.route.id !== page.route.id || navigation.to?.params?.id !== page.params.id;
 
 		if (loading && navigatingAway) {
-			addBackgroundGeneration({ id: page.params.id, startedAt: Date.now() });
+			addBackgroundGeneration({ id: page.params.id!, startedAt: Date.now() });
 		}
 
 		$isAborted = true;
@@ -588,10 +599,10 @@
 	});
 
 	onMount(() => {
-		const hasBackgroundEntry = hasBackgroundGeneration(page.params.id);
+		const hasBackgroundEntry = hasBackgroundGeneration(page.params.id!);
 		const streaming = isConversationStreaming(messages);
 		if (hasBackgroundEntry && streaming) {
-			addBackgroundGeneration({ id: page.params.id, startedAt: Date.now() });
+			addBackgroundGeneration({ id: page.params.id!, startedAt: Date.now() });
 			loading = true;
 		}
 	});
@@ -599,6 +610,19 @@
 	let title = $derived.by(() => {
 		const rawTitle = conversations.find((conv) => conv.id === page.params.id)?.title ?? data.title;
 		return rawTitle ? rawTitle.charAt(0).toUpperCase() + rawTitle.slice(1) : rawTitle;
+	});
+
+	// Update conversation tree store for sidebar
+	$effect(() => {
+		if (browser && page.params.id && messages.length > 0) {
+			setConversationTree(
+				page.params.id,
+				messages,
+				targetMessageId || messagesPath.at(-1)?.id,
+				branchState,
+				messagesPath.map(m => m.id)
+			);
+		}
 	});
 </script>
 
@@ -614,11 +638,13 @@
 	shared={data.shared}
 	preprompt={data.preprompt}
 	personaId={(data as any).personaId}
+	branchState={activeBranch}
 	bind:files
 	onmessage={onMessage}
 	onretry={onRetry}
 	oncontinue={onContinue}
 	onshowAlternateMsg={onShowAlternateMsg}
+	onbranch={onBranch}
 	onstop={async () => {
 		await fetch(`${base}/conversation/${page.params.id}/stop-generating`, {
 			method: "POST",
