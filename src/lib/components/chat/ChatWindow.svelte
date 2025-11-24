@@ -47,12 +47,18 @@
 		preprompt?: string | undefined;
 		personaId?: string;
 		lockedPersonaId?: string;
+		branchState?: {
+			messageId: string;
+			personaId: string;
+			personaName: string;
+		} | null;
 		files?: File[];
 		onmessage?: (content: string) => void;
 		onstop?: () => void;
-		onretry?: (payload: { id: Message["id"]; content?: string }) => void;
+		onretry?: (payload: { id: Message["id"]; content?: string; personaId?: string }) => void;
 		oncontinue?: (payload: { id: Message["id"] }) => void;
 		onshowAlternateMsg?: (payload: { id: Message["id"] }) => void;
+		onbranch?: (messageId: string, personaId: string) => void;
 	}
 
 	let {
@@ -66,12 +72,14 @@
 		preprompt = undefined,
 		personaId,
 		lockedPersonaId,
+		branchState,
 		files = $bindable([]),
 		onmessage,
 		onstop,
 		onretry,
 		oncontinue,
 		onshowAlternateMsg,
+		onbranch,
 	}: Props = $props();
 
 	let isReadOnly = $derived(!models.some((model) => model.id === currentModel.id));
@@ -81,6 +89,26 @@
 	let persona = $derived.by(() => {
 		if (!personaId) return undefined;
 		return $userSettings.personas?.find((p) => p.id === personaId);
+	});
+	
+	// Compute branch points: messages that other messages branch from
+	// Map of messageId -> array of persona names that branched from it
+	let branchPointInfo = $derived.by(() => {
+		const branchPoints = new Map<string, string[]>();
+		messages.forEach(msg => {
+			if (msg.branchedFrom) {
+				const messageId = msg.branchedFrom.messageId;
+				const personaName = $userSettings.personas?.find(p => p.id === msg.branchedFrom?.personaId)?.name || msg.branchedFrom.personaId;
+				if (!branchPoints.has(messageId)) {
+					branchPoints.set(messageId, []);
+				}
+				const personas = branchPoints.get(messageId)!;
+				if (!personas.includes(personaName)) {
+					personas.push(personaName);
+				}
+			}
+		});
+		return branchPoints;
 	});
 
 	let message: string = $state("");
@@ -368,9 +396,12 @@
 						personaName={message.from === "assistant" && !message.personaResponses ? persona?.name : undefined}
 						personaOccupation={message.from === "assistant" && !message.personaResponses ? persona?.jobSector : undefined}
 						personaStance={message.from === "assistant" && !message.personaResponses ? persona?.stance : undefined}
+						{branchState}
+						branchPersonas={branchPointInfo.get(message.id) ?? []}
 						bind:editMsdgId
 						onretry={(payload) => onretry?.(payload)}
 						onshowAlternateMsg={(payload) => onshowAlternateMsg?.(payload)}
+						onbranch={(messageId, personaId) => onbranch?.(messageId, personaId)}
 					/>
 					{/each}
 					{#if isReadOnly}
@@ -427,7 +458,6 @@
 			<div
 				class="no-scrollbar mb-3 flex w-full select-none justify-start gap-2 overflow-x-auto whitespace-nowrap text-gray-400 dark:text-gray-500"
 			>
-				<!-- <span class=" text-gray-500 dark:text-gray-400">Follow ups</span> -->
 				{#each routerFollowUps as followUp}
 					<button
 						class="flex items-center gap-1 rounded-lg bg-gray-100/90 px-2 py-0.5 text-center text-sm backdrop-blur hover:text-gray-500 dark:bg-gray-700/50 dark:hover:text-gray-400"
@@ -460,19 +490,6 @@
 		<div class="w-full">
 			<div class="flex w-full *:mb-3">
 				{#if !loading}
-					<!-- Retry button commented out - regeneration disabled -->
-					<!-- {#if lastIsError}
-						<RetryBtn
-							classNames="ml-auto"
-							onClick={() => {
-								if (lastMessage && lastMessage.ancestors) {
-									onretry?.({
-										id: lastMessage.id,
-									});
-								}
-							}}
-						/>
-					{:else  -->
 					{#if messages && lastMessage && lastMessage.interrupted && !isReadOnly}
 						<div class="ml-auto gap-2">
 							<ContinueBtn
@@ -563,7 +580,11 @@
 							<ChatInput value="Sorry, something went wrong. Please try again." disabled={true} />
 						{:else}
 							<ChatInput
-								placeholder={isReadOnly ? "This conversation is read-only." : "Ask anything"}
+								placeholder={isReadOnly 
+									? "This conversation is read-only." 
+									: branchState 
+										? `Branched from ${branchState.personaName}` 
+										: "Ask anything"}
 								{loading}
 								bind:value={message}
 								bind:files
