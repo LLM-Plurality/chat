@@ -13,6 +13,8 @@ const personaSchema = z.object({
 	occupation: z.string().max(200).default(""),
 	stance: z.string().max(200).default(""),
 	prompt: z.string().max(10000).default(""),
+	age: z.string().default(""),
+	gender: z.string().default(""),
 	isDefault: z.boolean(),
 	createdAt: z.coerce.date(),
 	updatedAt: z.coerce.date(),
