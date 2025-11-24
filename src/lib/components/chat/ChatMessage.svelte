@@ -8,10 +8,10 @@
 	import IconLoading from "../icons/IconLoading.svelte";
 	import CarbonRotate360 from "~icons/carbon/rotate-360";
 	import CarbonBranch from "~icons/carbon/branch";
-	import CarbonChevronDown from "~icons/carbon/chevron-down";
-	import CarbonChevronUp from "~icons/carbon/chevron-up";
 	import CarbonChevronLeft from "~icons/carbon/chevron-left";
 	import CarbonChevronRight from "~icons/carbon/chevron-right";
+	import CarbonMaximize from "~icons/carbon/maximize";
+	import CarbonMinimize from "~icons/carbon/minimize";
 	import CarbonPen from "~icons/carbon/pen";
 	import UploadedFile from "./UploadedFile.svelte";
 
@@ -47,6 +47,7 @@
 			personaId: string;
 			personaName: string;
 		} | null;
+		branchPersonas?: string[];
 		onretry?: (payload: { id: Message["id"]; content?: string; personaId?: string }) => void;
 		onshowAlternateMsg?: (payload: { id: Message["id"] }) => void;
 		onbranch?: (messageId: string, personaId: string) => void;
@@ -60,6 +61,7 @@
 		isAuthor: _isAuthor = true,
 		readOnly: _readOnly = false,
 		isTapped = $bindable(false),
+		branchPersonas = [],
 		alternatives = [],
 		editMsdgId = $bindable(null),
 		isLast = false,
@@ -81,7 +83,7 @@
 	
 	let expandedStates = $state<Record<string, boolean>>({});
 	let focusedPersonaId = $state<string | null>(null);
-
+	
 	let contentElements = $state<Record<string, HTMLElement | null>>({});
 	const MAX_COLLAPSED_HEIGHT = 400;
 	
@@ -112,14 +114,6 @@
 			[]) as MessageReasoningUpdate[]
 	);
 
-	// const messageFinalAnswer = $derived(
-	// 	message.updates?.find(
-	// 		({ type }) => type === MessageUpdateType.FinalAnswer
-	// 	) as MessageFinalAnswerUpdate
-	// );
-	// const urlNotTrailing = $derived(page.url.pathname.replace(/\/$/, ""));
-	// let downloadLink = $derived(urlNotTrailing + `/message/${message.id}/prompt`);
-
 let thinkSegments = $derived.by(() => splitThinkSegments(message.content));
 	let hasServerReasoning = $derived(
 		reasoningUpdates &&
@@ -129,8 +123,7 @@ let thinkSegments = $derived.by(() => splitThinkSegments(message.content));
 	);
 let hasClientThink = $derived(!hasServerReasoning && hasThinkSegments(message.content));
 
-	// Check if using persona-based response structure (vs legacy message structure)
-	// Check for existence of the property, not length - empty array [] means "loading personas"
+	// Check if using persona-based response structure
 	let isPersonaMode = $derived(message.personaResponses !== undefined);
 	
 	// Unified responses array: use personaResponses if available, otherwise wrap message as single response
@@ -221,6 +214,16 @@ let hasClientThink = $derived(!hasServerReasoning && hasThinkSegments(message.co
 		} else {
 			// Otherwise, just toggle the individual card's state
 			expandedStates[personaId] = !isCurrentlyExpanded;
+			
+			// If expanding, scroll to show the bottom of the content
+			if (!isCurrentlyExpanded) {
+				setTimeout(() => {
+					const element = contentElements[personaId];
+					if (element) {
+						element.scrollIntoView({ behavior: 'smooth', block: 'end' });
+					}
+				}, 50);
+			}
 		}
 	}
 	
@@ -246,15 +249,48 @@ let hasClientThink = $derived(!hasServerReasoning && hasThinkSegments(message.co
 	}
 
 	// Reactive overflow detection - updates during streaming
-	let overflowStates = $derived.by(() => {
-		const states: Record<string, boolean> = {};
+	let overflowStates = $state<Record<string, boolean>>({});
+	
+	// Effect to detect overflow states during rendering and expansion
+	$effect(() => {
+		// Recompute overflow states whenever responses change or elements are bound
+		const newStates: Record<string, boolean> = {};
 		responses.forEach(r => {
+			// Access content to make this reactive to content changes during streaming
+			const contentLength = r.content?.length || 0;
 			const element = contentElements[r.personaId];
-			states[r.personaId] = element ? element.scrollHeight > MAX_COLLAPSED_HEIGHT : false;
+			const isExpanded = expandedStates[r.personaId];
+			// Only check overflow if we have content and an element
+			// If expanded, always recheck after DOM updates
+			if (element && contentLength > 0) {
+				newStates[r.personaId] = element.scrollHeight > MAX_COLLAPSED_HEIGHT;
+			} else {
+				newStates[r.personaId] = false;
+			}
 		});
-		return states;
+		overflowStates = newStates;
 	});
 	
+	// Additional effect to force recheck after expansion state changes
+	$effect(() => {
+		// Track expanded states
+		const expandedKeys = Object.keys(expandedStates);
+		if (expandedKeys.length > 0) {
+			// Delay recheck to allow DOM to update
+			const timeout = setTimeout(() => {
+				const newStates: Record<string, boolean> = {};
+				responses.forEach(r => {
+					const element = contentElements[r.personaId];
+					if (element && r.content) {
+						newStates[r.personaId] = element.scrollHeight > MAX_COLLAPSED_HEIGHT;
+					}
+				});
+				overflowStates = { ...overflowStates, ...newStates };
+			}, 100);
+			return () => clearTimeout(timeout);
+		}
+	});
+
 	function hasOverflow(personaId: string): boolean {
 		return overflowStates[personaId] || false;
 	}
@@ -322,9 +358,7 @@ let hasClientThink = $derived(!hasServerReasoning && hasThinkSegments(message.co
 		<div class="{hasMultipleCards && !focusedPersonaId ? 'persona-scroll-container flex gap-3 overflow-x-auto pb-2 px-12' : ''}">
 			{#if isPersonaMode && responses.length === 0 && isLast && loading}
 				<!-- Loading state: waiting for personas to start responding -->
-				<div class="rounded-2xl border border-gray-100 bg-gradient-to-br from-gray-50 px-5 py-4 text-gray-600 dark:border-gray-800 dark:from-gray-800/80 dark:text-gray-300">
 					<IconLoading classNames="loading inline ml-2" />
-				</div>
 			{/if}
 			{#each responses as response (response.personaId)}
 				{@const isExpanded = expandedStates[response.personaId]}
@@ -358,6 +392,25 @@ let hasClientThink = $derived(!hasServerReasoning && hasThinkSegments(message.co
 						{/if}
 						
 						<div class="flex items-center gap-1">
+							{#if hasMultipleCards}
+								<button
+									type="button"
+									class="!rounded-md !p-1.5 !text-gray-500 hover:!bg-gray-100 dark:!text-gray-400 dark:hover:!bg-gray-800 transition-colors"
+									onclick={(e) => {
+										e.stopPropagation();
+										focusedPersonaId === response.personaId ? toggleExpanded(response.personaId) : setFocus(response.personaId);
+									}}
+									aria-label={focusedPersonaId === response.personaId ? "Exit focus mode" : "Focus this persona"}
+									title={focusedPersonaId === response.personaId ? "Show all cards" : "Focus on this card"}
+								>
+									{#if focusedPersonaId === response.personaId}
+										<CarbonMinimize class="text-base" />
+									{:else}
+										<CarbonMaximize class="text-base" />
+									{/if}
+								</button>
+							{/if}
+
 							{#if !loading && onretry}
 								<button
 									type="button"
@@ -372,37 +425,39 @@ let hasClientThink = $derived(!hasServerReasoning && hasThinkSegments(message.co
 									<CarbonRotate360 class="text-base" />
 								</button>
 							{/if}
-							{#if !loading && onbranch}
-								{@const isBranchClicked = branchClickedPersonaId === response.personaId}
-								<button
-									type="button"
-									class="!rounded-md !p-1.5 !text-gray-500 hover:!bg-gray-100 dark:!text-gray-400 dark:hover:!bg-gray-800 transition-colors"
-									onclick={(e) => {
-										e.stopPropagation();
-										
-										// Trigger animation
-										branchClickedPersonaId = response.personaId;
-										if (branchClickTimeout) {
-											clearTimeout(branchClickTimeout);
-										}
-										branchClickTimeout = setTimeout(() => {
-											branchClickedPersonaId = null;
-										}, 500);
-										
-										onbranch?.(message.id, response.personaId);
-									}}
-									aria-label="Branch conversation with {displayName}"
-									title="Start private conversation with {displayName}"
-								>
-									<div class="relative transition-transform duration-200 {isBranchClicked ? 'scale-125' : 'scale-100'}">
-										<CarbonBranch class="text-base" />
-									</div>
-								</button>
-							{/if}
-							<CopyToClipBoardBtn
-								classNames="!rounded-md !p-1.5 !text-gray-500 hover:!bg-gray-100 dark:!text-gray-400 dark:hover:!bg-gray-800"
-								value={response.content}
-							/>
+						{#if !loading && onbranch}
+							{@const isBranchClicked = branchClickedPersonaId === response.personaId}
+							<button
+								type="button"
+								class="!rounded-md !p-1.5 !text-gray-500 hover:!bg-gray-100 dark:!text-gray-400 dark:hover:!bg-gray-800 transition-colors"
+								onclick={(e) => {
+									e.stopPropagation();
+									
+									// Trigger animation
+									branchClickedPersonaId = response.personaId;
+									if (branchClickTimeout) {
+										clearTimeout(branchClickTimeout);
+									}
+									branchClickTimeout = setTimeout(() => {
+										branchClickedPersonaId = null;
+									}, 500);
+									
+									onbranch?.(message.id, response.personaId);
+								}}
+								aria-label="Branch conversation with {displayName}"
+								title="Start private conversation with {displayName}"
+							>
+								<div class="relative transition-transform duration-200 {isBranchClicked ? 'scale-125' : 'scale-100'}">
+									<CarbonBranch class="text-base" />
+								</div>
+							</button>
+						{/if}
+						{#if !loading}
+						<CopyToClipBoardBtn
+							classNames="!rounded-md !p-1.5 !text-gray-500 hover:!bg-gray-100 dark:!text-gray-400 dark:hover:!bg-gray-800"
+							value={response.content}
+						/>
+						{/if}
 						</div>
 					</div>
 
@@ -457,26 +512,6 @@ let hasClientThink = $derived(!hasServerReasoning && hasThinkSegments(message.co
 							</div>
 						{/if}
 					</div>
-
-				<!-- Expand/Collapse button for cards with overflow -->
-				{#if hasOverflow(response.personaId)}
-					<button
-						onclick={() => {
-							// In multi-card view, "Show more" enters focus mode
-							// "Show less" collapses all and exits focus
-							!isExpanded && hasMultipleCards ? setFocus(response.personaId) : toggleExpanded(response.personaId);
-						}}
-						class="mt-3 flex w-full items-center justify-center gap-1 rounded-md border border-gray-200 bg-gray-50 py-1.5 text-sm text-gray-600 transition-colors hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700"
-					>
-						{#if isExpanded}
-							<CarbonChevronUp class="text-base" />
-							<span>Show less</span>
-						{:else}
-							<CarbonChevronDown class="text-base" />
-							<span>Show more</span>
-						{/if}
-					</button>
-				{/if}
 				</div>
 				{/if}
 			{/each}
@@ -623,6 +658,8 @@ let hasClientThink = $derived(!hasServerReasoning && hasThinkSegments(message.co
 					/>
 				{/if}
 				{#if (alternatives.length > 1 && editMsdgId === null) || (!loading && !editMode)}
+					{@const isRootMessage = message.from === "user" && (!message.ancestors || message.ancestors.length === 0)}
+					{#if !isRootMessage}
 					<button
 						class="hidden cursor-pointer items-center gap-1 rounded-md border border-gray-200 px-1.5 py-0.5 text-xs text-gray-400 group-hover:flex hover:flex hover:text-gray-500 dark:border-gray-700 dark:text-gray-400 dark:hover:text-gray-300 lg:-right-2"
 						title="Edit"
@@ -632,6 +669,7 @@ let hasClientThink = $derived(!hasServerReasoning && hasThinkSegments(message.co
 						<CarbonPen />
 						Edit
 					</button>
+					{/if}
 				{/if}
 			</div>
 		</div>
