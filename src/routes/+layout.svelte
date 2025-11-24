@@ -24,6 +24,7 @@
 	import IconShare from "$lib/components/icons/IconShare.svelte";
 	import { shareModal } from "$lib/stores/shareModal";
 	import BackgroundGenerationPoller from "$lib/components/BackgroundGenerationPoller.svelte";
+	import { resetActivePersonasToDefaults } from "$lib/utils/personaDefaults";
 
 	let { data = $bindable(), children } = $props();
 
@@ -150,7 +151,7 @@
 		}
 
 		// Global keyboard shortcut: New Chat (Ctrl/Cmd + Shift + O)
-		const onKeydown = (e: KeyboardEvent) => {
+		const onKeydown = async (e: KeyboardEvent) => {
 			// Ignore when a modal has focus (app is inert)
 			const appEl = document.getElementById("app");
 			if (appEl?.hasAttribute("inert")) return;
@@ -159,6 +160,12 @@
 			const metaOrCtrl = e.metaKey || e.ctrlKey;
 			if (oPressed && e.shiftKey && metaOrCtrl) {
 				e.preventDefault();
+
+				await resetActivePersonasToDefaults(
+					settings,
+					$settings.personas,
+					$settings.activePersonas
+				);
 				isAborted.set(true);
 				goto(`${base}/`, { invalidateAll: true });
 			}
@@ -242,14 +249,14 @@
 
 <div
 	class="fixed grid h-full w-screen grid-cols-1 grid-rows-[auto,1fr] overflow-hidden text-smd {!isNavCollapsed
-		? 'md:grid-cols-[290px,1fr]'
-		: 'md:grid-cols-[0px,1fr]'} transition-[300ms] [transition-property:grid-template-columns] dark:text-gray-300 md:grid-rows-[1fr]"
+		? 'md:grid-cols-[var(--sidebar-width,290px),1fr]'
+		: 'md:grid-cols-[0px,1fr]'} transition-[grid-template-columns] duration-300 dark:text-gray-300 md:grid-rows-[1fr]"
 >
 	<ExpandNavigation
 		isCollapsed={isNavCollapsed}
 		onClick={() => (isNavCollapsed = !isNavCollapsed)}
-		classNames="absolute inset-y-0 z-10 my-auto {!isNavCollapsed
-			? 'left-[290px]'
+		classNames="absolute inset-y-0 z-10 my-auto transition-[left] duration-300 {!isNavCollapsed
+			? 'left-[var(--sidebar-width,290px)]'
 			: 'left-0'} *:transition-transform"
 	/>
 
@@ -274,7 +281,8 @@
 		/>
 	</MobileNav>
 	<nav
-		class="grid max-h-screen grid-cols-1 grid-rows-[auto,1fr,auto] overflow-hidden *:w-[290px] max-md:hidden"
+		class="grid max-h-screen grid-cols-1 grid-rows-[auto,1fr,auto] overflow-hidden transition-[width,opacity] duration-300 max-md:hidden {isNavCollapsed ? 'opacity-0' : 'opacity-100'}"
+		style={!isNavCollapsed ? "width: var(--sidebar-width, 290px);" : "width: 0;"}
 	>
 		<NavMenu
 			{conversations}
