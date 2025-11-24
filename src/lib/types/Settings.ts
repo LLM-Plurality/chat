@@ -14,8 +14,8 @@ export interface Settings extends Timestamps {
 	activeModel: string;
 
 	// Active personas and user's custom personas
-	activePersonas: string[]; // Persona IDs
-	personas: Persona[]; // User's custom personas + edited defaults
+	activePersonas: string[];
+	personas: Persona[];
 
 	/**
 	 * Per‑model overrides to enable multimodal (image) support
@@ -39,7 +39,7 @@ export type SettingsEditable = Omit<Settings, "welcomeModalSeenAt" | "createdAt"
 export const DEFAULT_SETTINGS = {
 	shareConversationsWithModelAuthors: true,
 	activeModel: defaultModel.id,
-	activePersonas: ["dr-robert-zane", "mayor-david-chen"], // Default personas (can have multiple)
+	activePersonas: ["dr-robert-zane", "mayor-david-chen", "dr-evelyn-reed", "mr-ben-carter"], // All default personas active on startup
 	personas: DEFAULT_PERSONAS.map((p) => ({
 		...p,
 		archived: p.archived ?? false,
