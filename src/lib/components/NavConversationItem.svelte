@@ -1,14 +1,21 @@
 <script lang="ts">
 	import { base } from "$app/paths";
 	import { page } from "$app/state";
+	import { goto } from "$app/navigation";
 
 	import CarbonCheckmark from "~icons/carbon/checkmark";
 	import CarbonTrashCan from "~icons/carbon/trash-can";
 	import CarbonClose from "~icons/carbon/close";
 	import CarbonEdit from "~icons/carbon/edit";
 	import type { ConvSidebar } from "$lib/types/ConvSidebar";
+	import { type Message, MessageRole } from "$lib/types/Message";
 
 	import EditConversationModal from "$lib/components/EditConversationModal.svelte";
+	import ConversationTreeGraph from "$lib/components/ConversationTreeGraph.svelte";
+	import { conversationTree } from "$lib/stores/conversationTree";
+	import type { TreeLayoutNode } from "$lib/utils/tree/layout";
+	import { buildTreeWithPositions } from "$lib/utils/tree/layout";
+	import { onDestroy } from "svelte";
 
 	interface Props {
 		conv: ConvSidebar;
@@ -21,8 +28,95 @@
 
 	let confirmDelete = $state(false);
 	let renameOpen = $state(false);
+
+	// Check if this is the active conversation with tree data
+	let isActiveWithTree = $derived(
+		conv.id === page.params.id && $conversationTree.conversationId === conv.id
+	);
+
+	let treeData = $state<{ nodes: TreeLayoutNode[]; width: number; height: number }>({ 
+		nodes: [], 
+		width: 0, 
+		height: 0 
+	});
+
+	let treeUpdateTimeout: ReturnType<typeof setTimeout>;
+
+	// Update tree data when conversation or messages change
+	// Only update after messages are complete (have content)
+	// DEBOUNCED to prevent layout thrashing during streaming
+	$effect(() => {
+		if (isActiveWithTree && $conversationTree.messages.length > 0) {
+			clearTimeout(treeUpdateTimeout);
+			treeUpdateTimeout = setTimeout(() => {
+				// Filter to only messages with content (streaming complete)
+				// For assistant messages with personas, check personaResponses
+				const completeMessages = $conversationTree.messages.filter(m => {
+					// Exclude system messages from tree visualization
+					if (m.from === MessageRole.System) {
+						return false;
+					}
+
+					if (m.from === MessageRole.Assistant && m.personaResponses && m.personaResponses.length > 0) {
+						// Check if at least one persona has content
+						return m.personaResponses.some(pr => pr.content && pr.content.trim().length > 0);
+					}
+					// For user messages, check main content field
+					return m.content && m.content.trim().length > 0;
+				});
+				
+				if (completeMessages.length > 0) {
+					buildTreeWithPositions(
+						completeMessages, 
+						$conversationTree.activeMessageId || undefined,
+						new Set($conversationTree.activePath)
+					).then((data) => {
+						treeData = data;
+						// Set CSS variable for sidebar width (tree width + padding)
+						// Allow expansion up to 800px for very wide trees
+						const sidebarWidth = Math.max(290, Math.min(800, data.width + 60)); // +60 for padding
+						document.documentElement.style.setProperty('--sidebar-width', `${sidebarWidth}px`);
+					}).catch((err) => {
+						console.error('Error building tree:', err);
+					});
+				}
+			}, 300); // 300ms debounce
+		} else {
+			treeData = { nodes: [], width: 0, height: 0 };
+			// Reset to default width
+			document.documentElement.style.setProperty('--sidebar-width', '290px');
+		}
+	});
+
+	onDestroy(() => {
+		if (treeUpdateTimeout) clearTimeout(treeUpdateTimeout);
+	});
+
+	function handleTreeNodeClick(messageId: string) {
+		const clickedMessage = $conversationTree.messages.find(m => m.id === messageId);
+		if (!clickedMessage) {
+			console.error('Clicked message not found:', messageId);
+			goto(`${base}/conversation/${conv.id}?msgId=${messageId}&scrollTo=true`);
+			return;
+		}
+		
+		const currentBranchState = $conversationTree.branchedFrom;
+		
+		if (currentBranchState) {
+			const currentActivePath = new Set($conversationTree.activePath);
+			
+			if (currentActivePath.has(messageId)) {
+				// Message is in active branch; preserve state
+				goto(`${base}/conversation/${conv.id}?msgId=${messageId}&scrollTo=true&keepBranch=true`);
+				return;
+			}
+		}
+		
+		goto(`${base}/conversation/${conv.id}?msgId=${messageId}&scrollTo=true`);
+	}
 </script>
 
+<div class="flex flex-col">
 <a
 	data-sveltekit-noscroll
 	onmouseleave={() => {
@@ -101,6 +195,15 @@
 		{/if}
 	{/if}
 </a>
+
+	<!-- Tree view (only shown for active conversation) -->
+	{#if isActiveWithTree && treeData.nodes.length > 0}
+		<ConversationTreeGraph 
+			{treeData} 
+			onNodeClick={handleTreeNodeClick} 
+		/>
+	{/if}
+</div>
 
 <!-- Edit title modal -->
 {#if renameOpen}
