@@ -19,6 +19,8 @@ export interface UserUpdateData {
 	avatarUrl?: string;
 	isAdmin?: boolean;
 	isEarlyAccess?: boolean;
+	passwordHash?: string;
+	recoveryKeyHash?: string;
 }
 
 export async function updateUserSession(params: {
@@ -88,6 +90,8 @@ export async function updateUserSession(params: {
 		isAdmin: userData.isAdmin,
 		isEarlyAccess: userData.isEarlyAccess,
 		...(userData.authProvider === "huggingface" ? { hfUserId: userData.authId } : {}),
+		...(userData.passwordHash ? { passwordHash: userData.passwordHash } : {}),
+		...(userData.recoveryKeyHash ? { recoveryKeyHash: userData.recoveryKeyHash } : {}),
 	};
 
 	if (existingUser) {
@@ -133,6 +137,8 @@ export async function updateUserSession(params: {
 			authId: userData.authId,
 			email: userData.email,
 			...(userData.authProvider === "huggingface" ? { hfUserId: userData.authId } : {}),
+			...(userData.passwordHash ? { passwordHash: userData.passwordHash } : {}),
+			...(userData.recoveryKeyHash ? { recoveryKeyHash: userData.recoveryKeyHash } : {}),
 		});
 
 		userId = insertedId;
