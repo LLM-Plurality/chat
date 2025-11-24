@@ -53,7 +53,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		},
 	];
 
-	let rootMessageId: Message["id"] = messages[0].id;
+	let rootMessageId: Message["id"] | undefined = undefined;
 
 	if (values.fromShare) {
 		const conversation = await collections.sharedConversations.findOne({

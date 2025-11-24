@@ -156,6 +156,8 @@ export async function POST({ request, locals, params, getClientAddress }) {
 		id: messageId,
 		is_retry: isRetry,
 		is_continue: isContinue,
+		persona_id: personaId,
+		branched_from: branchedFrom,
 	} = z
 		.object({
 			id: z.string().uuid().refine(isMessageId).optional(), // parent message id to append to for a normal message, or the message id for a retry/continue
@@ -168,6 +170,12 @@ export async function POST({ request, locals, params, getClientAddress }) {
 			is_retry: z.optional(z.boolean()),
 			is_continue: z.optional(z.boolean()),
 			persona_id: z.optional(z.string()), // Optional: specific persona to regenerate
+			branched_from: z.optional(
+				z.object({
+					messageId: z.string(),
+					personaId: z.string(),
+				})
+			), // Optional: branch metadata
 			files: z.optional(
 				z.array(
 					z.object({
@@ -237,15 +245,9 @@ export async function POST({ request, locals, params, getClientAddress }) {
 		messageToWriteToId = messageId;
 		messagesForPrompt = buildSubtree(conv, messageId);
 	} else if (isRetry && messageId) {
-		// REGENERATION DISABLED - commenting out retry logic
-		// Returning error when retry is attempted
-		error(400, "Regeneration is currently disabled");
-
-		/* 
-		// two cases, if we're retrying a user message with a newPrompt set,
-		// it means we're editing a user message
-		// if we're retrying on an assistant message, newPrompt cannot be set
-		// it means we're retrying the last assistant message for a new answer
+		// Two cases:
+		// 1. Retrying a user message with newPrompt = editing the user's input
+		// 2. Retrying an assistant message = regenerating assistant response(s)
 
 		const messageToRetry = conv.messages.find((message) => message.id === messageId);
 
@@ -253,9 +255,11 @@ export async function POST({ request, locals, params, getClientAddress }) {
 			error(404, "Message not found");
 		}
 
+		// Import addSibling for retry logic
+		const { addSibling } = await import("$lib/utils/tree/addSibling.js");
+
 		if (messageToRetry.from === "user" && newPrompt) {
-			// add a sibling to this message from the user, with the alternative prompt
-			// add a children to that sibling, where we can write to
+			// Editing user message: create sibling with new content, then new assistant response
 			const newUserMessageId = addSibling(
 				conv,
 				{
@@ -264,9 +268,17 @@ export async function POST({ request, locals, params, getClientAddress }) {
 					files: uploadedFiles,
 					createdAt: new Date(),
 					updatedAt: new Date(),
+					// Copy branchedFrom if it exists
+					...(messageToRetry.branchedFrom && {
+						branchedFrom: messageToRetry.branchedFrom,
+					}),
 				},
 				messageId
 			);
+
+			// Get the newly created user message to check for branchedFrom
+			const newUserMessage = conv.messages.find((m) => m.id === newUserMessageId);
+
 			messageToWriteToId = addChildren(
 				conv,
 				{
@@ -274,22 +286,35 @@ export async function POST({ request, locals, params, getClientAddress }) {
 					content: "",
 					createdAt: new Date(),
 					updatedAt: new Date(),
+					// Copy branchedFrom from user message if it exists
+					...(newUserMessage?.branchedFrom && {
+						branchedFrom: newUserMessage.branchedFrom,
+					}),
 				},
 				newUserMessageId
 			);
 			messagesForPrompt = buildSubtree(conv, newUserMessageId);
 		} else if (messageToRetry.from === "assistant") {
-			// we're retrying an assistant message, to generate a new answer
-			// just add a sibling to the assistant answer where we can write to
+			// Regenerating assistant response: create new sibling response
 			messageToWriteToId = addSibling(
 				conv,
-				{ from: "assistant", content: "", createdAt: new Date(), updatedAt: new Date() },
+				{
+					from: "assistant",
+					content: "",
+					createdAt: new Date(),
+					updatedAt: new Date(),
+					// Copy branchedFrom if it exists
+					...(messageToRetry.branchedFrom && {
+						branchedFrom: messageToRetry.branchedFrom,
+					}),
+				},
 				messageId
 			);
 			messagesForPrompt = buildSubtree(conv, messageId);
-			messagesForPrompt.pop(); // don't need the latest assistant message in the prompt since we're retrying it
+			messagesForPrompt.pop(); // don't need the old assistant message in the prompt
+		} else {
+			error(400, "Invalid retry request");
 		}
-		*/
 	} else {
 		// just a normal linear conversation, so we add the user message
 		// and the blank assistant message back to back
@@ -301,6 +326,10 @@ export async function POST({ request, locals, params, getClientAddress }) {
 				files: uploadedFiles,
 				createdAt: new Date(),
 				updatedAt: new Date(),
+				// Add branchedFrom from request if it exists
+				...(branchedFrom && {
+					branchedFrom,
+				}),
 			},
 			messageId
 		);
@@ -312,6 +341,10 @@ export async function POST({ request, locals, params, getClientAddress }) {
 				content: "",
 				createdAt: new Date(),
 				updatedAt: new Date(),
+				// Copy branchedFrom from request if it exists
+				...(branchedFrom && {
+					branchedFrom,
+				}),
 			},
 			newUserMessageId
 		);
@@ -535,53 +568,44 @@ export async function POST({ request, locals, params, getClientAddress }) {
 				);
 				const { generateTitleForConversation } = await import("$lib/server/textGeneration/title");
 
-				// REGENERATION DISABLED - commenting out persona retry logic
-				/* 
-			// Check if this is a retry for a specific persona
-			const isPersonaRetry = isRetry && personaId;
-			
-			// If retrying a specific persona, get the previous message's persona responses
-			const previousMessage = isPersonaRetry 
-				? conv.messages.find((msg) => msg.id === messageId)
-				: null;
+				// Check if this is a retry for a specific persona
+				const isPersonaRetry = isRetry && personaId;
 
-			// Initialize persona responses structure
-			if (isPersonaRetry && previousMessage?.personaResponses) {
-				// Copy all previous persona responses
-				messageToWriteTo.personaResponses = previousMessage.personaResponses.map((pr) => {
-					if (pr.personaId === personaId) {
-						// For the persona being regenerated, store the old response as a child
-						const oldResponse = { ...pr };
-						delete oldResponse.children; // Don't nest children recursively
-						delete oldResponse.currentChildIndex;
-						
-						return {
-							personaId: pr.personaId,
-							personaName: pr.personaName,
-							personaOccupation: pr.personaOccupation,
-							personaStance: pr.personaStance,
-							content: "",
-							updates: [],
-							children: [oldResponse], // Store the old response
-							currentChildIndex: 0, // New response will be at index 0
-						};
-					} else {
-						// Keep other personas' responses as-is
-						return { ...pr };
-					}
-				});
-			} else {
-			*/
-				// Normal generation: initialize empty responses for all personas
-				messageToWriteTo.personaResponses = activePersonas.map((p) => ({
-					personaId: p.id,
-					personaName: p.name,
-					personaOccupation: p.jobSector,
-					personaStance: p.stance,
-					content: "",
-					updates: [],
-				}));
-				// }
+				// If retrying a specific persona, get the previous message's persona responses
+				const previousMessage = isPersonaRetry
+					? conv.messages.find((msg) => msg.id === messageId)
+					: null;
+
+				// Initialize persona responses structure
+				if (isPersonaRetry && previousMessage?.personaResponses) {
+					// Copy all previous persona responses
+					messageToWriteTo.personaResponses = previousMessage.personaResponses.map((pr) => {
+						if (pr.personaId === personaId) {
+							// For the persona being regenerated, reset content
+							return {
+								personaId: pr.personaId,
+								personaName: pr.personaName,
+								personaOccupation: pr.personaOccupation,
+								personaStance: pr.personaStance,
+								content: "",
+								updates: [],
+							};
+						} else {
+							// Keep other personas' responses as-is
+							return { ...pr };
+						}
+					});
+				} else {
+					// Normal generation: initialize empty responses for all personas
+					messageToWriteTo.personaResponses = activePersonas.map((p) => ({
+						personaId: p.id,
+						personaName: p.name,
+						personaOccupation: p.jobSector,
+						personaStance: p.stance,
+						content: "",
+						updates: [],
+					}));
+				}
 
 				try {
 					// Generate title if needed (do this once, not per-persona)
@@ -611,18 +635,16 @@ export async function POST({ request, locals, params, getClientAddress }) {
 						forceMultimodal: Boolean(userSettings?.multimodalOverrides?.[model.id]),
 					};
 
-					// REGENERATION DISABLED - always generate for all active personas
-					/* 
-				// Determine which personas to generate for
-				const personasToGenerate = isPersonaRetry && personaId
-					? (() => {
-						// Find the specific persona from all user personas, not just active ones
+					// Determine which personas to generate for
+					let personasToGenerate = activePersonas;
+
+					// Check if this is a retry for a specific persona
+					if (isPersonaRetry && personaId) {
 						const persona = userSettings?.personas?.find((p) => p.id === personaId);
-						return persona ? [persona] : [];
-					})()
-					: activePersonas;
-				*/
-					const personasToGenerate = activePersonas;
+						personasToGenerate = persona ? [persona] : [];
+					}
+					// Note: branchedFrom is used for message filtering/display, not persona restriction
+					// Users can switch personas within a branch by using the persona selector
 
 					// Run multi-persona text generation (preprocessing happens once inside)
 					for await (const event of multiPersonaTextGeneration(ctx, personasToGenerate)) {
