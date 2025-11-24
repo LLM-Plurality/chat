@@ -17,6 +17,8 @@
 	import { Spring } from "svelte/motion";
 	import { pan, type GestureCustomEvent, type PanCustomEvent } from "svelte-gestures";
 	import { shareModal } from "$lib/stores/shareModal";
+	import { useSettingsStore } from "$lib/stores/settings";
+	import { resetActivePersonasToDefaults } from "$lib/utils/personaDefaults";
 	interface Props {
 		title: string | undefined;
 		children?: import("svelte").Snippet;
@@ -51,6 +53,8 @@
 		},
 		{ stiffness: 0.2, damping: 0.8 }
 	);
+
+	const settings = useSettingsStore();
 
 	$effect(() => {
 		title ??= "New Chat";
@@ -111,7 +115,17 @@
 				<IconShare classNames={!canShare ? "opacity-40" : ""} />
 			</button>
 		{/if}
-		<a href="{base}/" class="flex size-8 shrink-0 items-center justify-center text-lg">
+		<a
+			href="{base}/"
+			class="flex size-8 shrink-0 items-center justify-center text-lg"
+			onclick={() => {
+				void resetActivePersonasToDefaults(
+					settings,
+					$settings.personas,
+					$settings.activePersonas
+				);
+			}}
+		>
 			<IconNew />
 		</a>
 	</div>
