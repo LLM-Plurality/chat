@@ -20,8 +20,16 @@ export type PersonaResponse = {
 	currentChildIndex?: number;
 };
 
+export const MessageRole = {
+	User: "user",
+	Assistant: "assistant",
+	System: "system",
+} as const;
+
+export type MessageRole = (typeof MessageRole)[keyof typeof MessageRole];
+
 export type Message = Partial<Timestamps> & {
-	from: "user" | "assistant" | "system";
+	from: MessageRole;
 	id: ReturnType<typeof v4>;
 	content: string;
 	updates?: MessageUpdate[];
@@ -41,8 +49,14 @@ export type Message = Partial<Timestamps> & {
 		model: string;
 	};
 
-	// Multi-persona responses (when multiple personas are active)
+	// Multi-persona responses
 	personaResponses?: PersonaResponse[];
+
+	// Branch metadata
+	branchedFrom?: {
+		messageId: Message["id"];
+		personaId: string;
+	};
 
 	// needed for conversation trees
 	ancestors?: Message["id"][];

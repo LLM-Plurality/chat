@@ -6,7 +6,8 @@ export type MessageUpdate =
 	| MessageFinalAnswerUpdate
 	| MessageReasoningUpdate
 	| MessageRouterMetadataUpdate
-	| MessagePersonaUpdate;
+	| MessagePersonaUpdate
+	| MessagePersonaInitUpdate;
 
 export enum MessageUpdateType {
 	Status = "status",
@@ -17,6 +18,7 @@ export enum MessageUpdateType {
 	Reasoning = "reasoning",
 	RouterMetadata = "routerMetadata",
 	Persona = "persona",
+	PersonaInit = "personaInit",
 }
 
 // Status
@@ -93,11 +95,22 @@ export interface MessagePersonaUpdate {
 	personaOccupation?: string;
 	personaStance?: string;
 	updateType: PersonaUpdateType;
-	token?: string; // for stream updates
-	text?: string; // for final answer
+	token?: string;
+	text?: string;
 	interrupted?: boolean;
-	status?: string; // for reasoning status
-	route?: string; // for router metadata
-	model?: string; // for router metadata
-	error?: string; // for error status
+	status?: string;
+	route?: string;
+	model?: string;
+	error?: string;
+}
+
+// Persona initialization - sent before streaming to establish order
+export interface MessagePersonaInitUpdate {
+	type: MessageUpdateType.PersonaInit;
+	personas: Array<{
+		personaId: string;
+		personaName: string;
+		personaOccupation?: string;
+		personaStance?: string;
+	}>;
 }
