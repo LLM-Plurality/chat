@@ -31,9 +31,6 @@ export async function* multiPersonaTextGeneration(
 		return;
 	}
 
-	// Single persona now uses the same flow as multiple personas for consistency
-	// This ensures all responses have the same personaResponses structure
-
 	const { conv, messages } = ctx;
 	const convId = conv._id;
 
@@ -41,6 +38,17 @@ export async function* multiPersonaTextGeneration(
 	yield {
 		type: MessageUpdateType.Status,
 		status: MessageUpdateStatus.Started,
+	};
+
+	// Send persona initialization to establish order before streaming
+	yield {
+		type: MessageUpdateType.PersonaInit,
+		personas: personas.map((p) => ({
+			personaId: p.id,
+			personaName: p.name,
+			personaOccupation: p.jobSector,
+			personaStance: p.stance,
+		})),
 	};
 
 	// Preprocess messages ONCE for all personas (performance optimization)
