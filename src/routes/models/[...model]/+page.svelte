@@ -10,6 +10,7 @@
 	import { useSettingsStore } from "$lib/stores/settings";
 	import { ERROR_MESSAGES, error } from "$lib/stores/errors";
 	import { pendingMessage } from "$lib/stores/pendingMessage";
+	import { resetActivePersonasToDefaults } from "$lib/utils/personaDefaults";
 
 	let { data } = $props();
 
@@ -23,6 +24,12 @@
 	async function createConversation(message: string) {
 		try {
 			loading = true;
+
+			await resetActivePersonasToDefaults(
+				settings,
+				$settings.personas,
+				$settings.activePersonas
+			);
 
 			const res = await fetch(`${base}/conversation`, {
 				method: "POST",
