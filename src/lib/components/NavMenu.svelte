@@ -28,6 +28,7 @@
 	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
 	import { useAPIClient, handleResponse } from "$lib/APIClient";
 	import { useSettingsStore } from "$lib/stores/settings";
+	import { resetActivePersonasToDefaults } from "$lib/utils/personaDefaults";
 
 	const publicConfig = usePublicConfig();
 	const client = useAPIClient();
@@ -54,6 +55,11 @@
 
 	function handleNewChatClick() {
 		isAborted.set(true);
+		void resetActivePersonasToDefaults(
+			settings,
+			$settings.personas,
+			$settings.activePersonas
+		);
 	}
 
 	const dateRanges = [
@@ -184,14 +190,7 @@
 			{/if}
 		</button>
 	{/if}
-	<!-- {#if canLogin}
-		<a
-			href="{base}/login"
-			class="flex h-9 w-full flex-none items-center gap-1.5 rounded-lg pl-2.5 pr-2 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
-		>
-			Login
-		</a>
-	{/if} -->
+	
 	<a
 		href={modelsRoute}
 		class="flex h-9 flex-none items-center gap-1.5 rounded-lg pl-2.5 pr-2 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
