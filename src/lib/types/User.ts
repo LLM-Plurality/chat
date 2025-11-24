@@ -18,6 +18,9 @@ export interface User extends Timestamps {
 	// Legacy field for backward compatibility (maps to authId when authProvider is "huggingface")
 	hfUserId?: string;
 
+	passwordHash?: string;
+	recoveryKeyHash?: string;
+
 	isAdmin?: boolean;
 	isEarlyAccess?: boolean;
 }
