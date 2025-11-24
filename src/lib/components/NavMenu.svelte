@@ -15,6 +15,7 @@
 	import IconMoon from "$lib/components/icons/IconMoon.svelte";
 	import { switchTheme } from "$lib/switchTheme";
 	import { isAborted } from "$lib/stores/isAborted";
+	import { loginModalOpen } from "$lib/stores/loginModal";
 
 	import NavConversationItem from "./NavConversationItem.svelte";
 	import type { LayoutData } from "../../routes/$types";
@@ -164,7 +165,7 @@
 		<InfiniteScroll onvisible={handleVisible} />
 	{/if}
 </div>
-<div
+	<div
 	class="flex touch-none flex-col gap-1 rounded-r-xl border border-l-0 border-gray-100 p-3 text-sm dark:border-transparent md:mt-3 md:bg-gradient-to-l md:from-gray-50 md:dark:from-gray-800/30"
 >
 	{#if user?.username || user?.email}
@@ -188,6 +189,15 @@
 					Sign Out
 				</span>
 			{/if}
+		</button>
+	{:else}
+		<button
+			onclick={() => {
+				$loginModalOpen = true;
+			}}
+			class="flex h-9 flex-none items-center gap-1.5 rounded-lg pl-2.5 pr-2 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
+		>
+			Login
 		</button>
 	{/if}
 	
