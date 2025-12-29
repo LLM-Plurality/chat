@@ -32,7 +32,7 @@ function expandPersonaResponses(messages: EndpointMessage[]): EndpointMessage[] 
 
 			return {
 				...message,
-				content: personaContents,
+				content: `--- Transcript of responses from participating personas ---\n${personaContents}`,
 			};
 		}
 		return message;

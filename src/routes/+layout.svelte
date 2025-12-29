@@ -273,7 +273,7 @@
 
 	<MobileNav title={mobileNavTitle}>
 		<NavMenu
-			{conversations}
+			bind:conversations
 			user={data.user}
 			canLogin={!data.user && data.loginEnabled}
 			ondeleteConversation={(id) => deleteConversation(id)}
@@ -285,7 +285,7 @@
 		style={!isNavCollapsed ? "width: var(--sidebar-width, 290px);" : "width: 0;"}
 	>
 		<NavMenu
-			{conversations}
+			bind:conversations
 			user={data.user}
 			canLogin={!data.user && data.loginEnabled}
 			ondeleteConversation={(id) => deleteConversation(id)}

@@ -31,6 +31,7 @@ export async function GET({ locals, params }) {
 					updates: message.updates,
 					reasoning: message.reasoning,
 					personaResponses: message.personaResponses,
+					metacognitiveEvents: message.metacognitiveEvents,
 				})),
 			};
 			return Response.json(res);

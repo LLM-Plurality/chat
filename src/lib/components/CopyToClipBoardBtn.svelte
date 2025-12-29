@@ -10,6 +10,7 @@
 		children?: import("svelte").Snippet;
 		onClick?: () => void;
 		showTooltip?: boolean;
+		disabled?: boolean;
 	}
 
 	let {
@@ -19,6 +20,7 @@
 		children,
 		onClick,
 		showTooltip = true,
+		disabled = false,
 	}: Props = $props();
 
 	let isSuccess = $state(false);
@@ -46,6 +48,8 @@
 	};
 
 	const handleClick = async () => {
+		if (disabled) return;
+		
 		try {
 			await copy(value);
 
@@ -70,11 +74,14 @@
 
 <button
 	class={classNames}
-	title={"Copy to clipboard"}
+	title={disabled ? "Please wait for current response to complete" : "Copy to clipboard"}
 	type="button"
+	{disabled}
 	onclick={() => {
-		onClick?.();
-		handleClick();
+		if (!disabled) {
+			onClick?.();
+			handleClick();
+		}
 	}}
 >
 	<div class="relative transition-transform duration-200 {isSuccess ? 'scale-125' : 'scale-100'}">

@@ -26,6 +26,9 @@
 		try {
 			creating = true;
 			errorMsg = null;
+			if (!page.params.id) {
+				throw new Error("No conversation id available to share");
+			}
 			createdUrl = await createShareLink(page.params.id);
 		} catch (e) {
 			errorMsg = (e as Error).message || "Could not create link";

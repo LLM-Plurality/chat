@@ -28,7 +28,12 @@ export function addChildren<T>(conv: Tree<T>, message: NewNode<T>, parentId?: Tr
 		return messageId;
 	}
 
-	const ancestors = [...(conv.messages.find((m) => m.id === parentId)?.ancestors ?? []), parentId];
+	const parent = conv.messages.find((m) => m.id === parentId);
+	if (!parent) {
+		throw new Error("Parent message not found");
+	}
+
+	const ancestors = [...(parent.ancestors ?? []), parentId];
 	conv.messages.push({
 		...message,
 		ancestors,
@@ -36,13 +41,9 @@ export function addChildren<T>(conv: Tree<T>, message: NewNode<T>, parentId?: Tr
 		children: [],
 	} as TreeNode<T>);
 
-	const parent = conv.messages.find((m) => m.id === parentId);
-
-	if (parent) {
-		if (parent.children) {
-			parent.children.push(messageId);
-		} else parent.children = [messageId];
-	}
+	if (parent.children) {
+		parent.children.push(messageId);
+	} else parent.children = [messageId];
 
 	return messageId;
 }

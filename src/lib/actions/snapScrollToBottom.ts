@@ -1,53 +1,68 @@
 import { navigating } from "$app/state";
 import { tick } from "svelte";
 
-const detachedOffset = 10;
-
-/**
- * @param node element to snap scroll to bottom
- * @param dependency pass in a dependency to update scroll on changes.
- */
 export const snapScrollToBottom = (node: HTMLElement, dependency: unknown) => {
-	let prevScrollValue = node.scrollTop;
 	let isDetached = false;
+	const threshold = 50; // Distance from bottom to consider "attached"
 
-	const handleScroll = () => {
-		// if user scrolled up, we detach
-		if (node.scrollTop < prevScrollValue) {
-			isDetached = true;
-		}
-
-		// if user scrolled back to within 10px of bottom, we reattach
-		if (node.scrollTop - (node.scrollHeight - node.clientHeight) >= -detachedOffset) {
-			isDetached = false;
-		}
-
-		prevScrollValue = node.scrollTop;
+	const isNearBottom = () => {
+		const { scrollTop, scrollHeight, clientHeight } = node;
+		// Use Math.abs for float precision safety, though distances are usually positive
+		return Math.abs(scrollHeight - scrollTop - clientHeight) <= threshold;
 	};
 
-	const updateScroll = async (_options: { force?: boolean } = {}) => {
-		const defaultOptions = { force: false };
-		const options = { ...defaultOptions, ..._options };
-		const { force } = options;
+	const updateScrollPosition = () => {
+		if (!isDetached) {
+			node.scrollTo({ top: node.scrollHeight, behavior: "instant" });
+		}
+	};
+
+	const onScroll = () => {
+		// If the user is near the bottom, they are attached.
+		// If they scroll up (away from bottom), they detach.
+		if (isNearBottom()) {
+			isDetached = false;
+		} else {
+			isDetached = true;
+		}
+	};
+
+	const update = async (_options: { force?: boolean } = {}) => {
+		const { force = false } = _options;
 
 		if (!force && isDetached && !navigating.to) return;
 
-		// wait for next tick to ensure that the DOM is updated
+		// Wait for DOM updates (e.g. new message rendered)
 		await tick();
 
-		node.scrollTo({ top: node.scrollHeight });
+		node.scrollTo({ top: node.scrollHeight, behavior: "instant" });
 	};
 
-	node.addEventListener("scroll", handleScroll);
+	// Observe content size changes (e.g. streaming responses, images loading)
+	// This ensures we stay at the bottom even if the container size doesn't change
+	// but the content grows.
+	const observer = new ResizeObserver(() => {
+		updateScrollPosition();
+	});
 
+	if (node.firstElementChild) {
+		observer.observe(node.firstElementChild);
+	} else {
+		observer.observe(node);
+	}
+
+	node.addEventListener("scroll", onScroll);
+
+	// Check initial state
 	if (dependency) {
-		updateScroll({ force: true });
+		update({ force: true });
 	}
 
 	return {
-		update: updateScroll,
+		update,
 		destroy: () => {
-			node.removeEventListener("scroll", handleScroll);
+			node.removeEventListener("scroll", onScroll);
+			observer.disconnect();
 		},
 	};
 };

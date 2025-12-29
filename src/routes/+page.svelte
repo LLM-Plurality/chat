@@ -25,12 +25,6 @@ const publicConfig = usePublicConfig();
 		try {
 			loading = true;
 
-			await resetActivePersonasToDefaults(
-				settings,
-				$settings.personas,
-				$settings.activePersonas
-			);
-
 			// check if $settings.activeModel is a valid model
 			// else check if it's an assistant, and use that model
 			// else use the first model
@@ -78,7 +72,13 @@ const publicConfig = usePublicConfig();
 		}
 	}
 
-	onMount(() => {
+	onMount(async () => {
+		await resetActivePersonasToDefaults(
+			settings,
+			$settings.personas,
+			$settings.activePersonas
+		);
+
 		// check if there's a ?q query param with a message
 		const query = page.url.searchParams.get("q");
 		if (query) createConversation(query);

@@ -351,6 +351,84 @@ let branchSyncTimeout: ReturnType<typeof setTimeout> | null = null;
 			}
 		}, 100);
 	}
+	
+	// Metacognitive branch handler: branches and auto-generates with the suggested persona
+	async function onMetacognitiveBranch(
+		userMessageId: string,
+		suggestedPersonaId: string,
+		promptData: {
+			type: "comprehension" | "perspective";
+			promptText: string;
+			triggerFrequency: number;
+			suggestedPersonaId?: string;
+			suggestedPersonaName?: string;
+		} | null
+	) {
+		if (!promptData) return;
+		
+		const suggestedPersona = $settings.personas?.find((p) => p.id === suggestedPersonaId);
+		if (!suggestedPersona) {
+			console.error('Suggested persona not found:', suggestedPersonaId);
+			return;
+		}
+		
+		// Find the user message we're branching from
+		const userMessage = messages.find(m => m.id === userMessageId);
+		if (!userMessage) {
+			console.error('User message not found for metacognitive branch:', userMessageId);
+			return;
+		}
+		
+		// Log the metacognitive event to the database
+		const lastAssistantMessage = messagesPath.at(-1);
+		if (lastAssistantMessage && lastAssistantMessage.from === "assistant") {
+			try {
+				const response = await fetch(`${base}/api/v2/conversations/${page.params.id}/message/${lastAssistantMessage.id}/metacognitive-event`, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						type: promptData.type,
+						promptText: promptData.promptText,
+						triggerFrequency: promptData.triggerFrequency,
+						suggestedPersonaId: promptData.suggestedPersonaId,
+						suggestedPersonaName: promptData.suggestedPersonaName,
+						accepted: true,
+					}),
+				});
+				if (!response.ok) {
+					console.error('Failed to log metacognitive event:', response.status, await response.text());
+				}
+			} catch (e) {
+				console.error('Failed to log metacognitive event:', e);
+			}
+		}
+		
+		// Set branch state pointing to the user message
+		updateBranchState({
+			messageId: userMessageId,
+			personaId: suggestedPersonaId,
+			personaName: suggestedPersona.name,
+		});
+		
+		// Switch active persona to the suggested one
+		await settings.instantSet({
+			activePersonas: [suggestedPersonaId],
+		});
+		
+		// Navigate to the user message and trigger a retry with the new persona
+		// This effectively creates a branch where the new persona responds to the user's question
+		targetMessageId = userMessageId;
+		
+		// Wait for state to settle, then trigger the message generation
+		await tick();
+		
+		// Trigger a retry from the user message with the new persona
+		await writeMessage({
+			messageId: userMessageId,
+			isRetry: true,
+			personaId: suggestedPersonaId,
+		});
+	}
 
 	let messages = $state(data.messages);
 	let lastDataMessages = data.messages;
@@ -391,6 +469,7 @@ let branchSyncTimeout: ReturnType<typeof setTimeout> | null = null;
 	$effect(() => {
 		const url = page.url;
 		const msgIdParam = url.searchParams.get("msgId");
+		const personaIdParam = url.searchParams.get("personaId");
 		const keepBranch = url.searchParams.get("keepBranch") === "true";
 		
 		if (!msgIdParam) {
@@ -412,6 +491,7 @@ let branchSyncTimeout: ReturnType<typeof setTimeout> | null = null;
 		urlObj.searchParams.delete("msgId");
 		urlObj.searchParams.delete('scrollTo');
 		urlObj.searchParams.delete('keepBranch');
+		urlObj.searchParams.delete('personaId');
 		goto(urlObj.pathname + urlObj.search, { replaceState: true, noScroll: true });
 		
 		if (keepBranch) {
@@ -435,6 +515,13 @@ let branchSyncTimeout: ReturnType<typeof setTimeout> | null = null;
 			setTimeout(() => {
 				const messageElement = document.querySelector(`[data-message-id="${msgIdParam}"]`);
 				if (messageElement) {
+					if (personaIdParam) {
+						const personaElement = messageElement.querySelector(`[data-persona-id="${personaIdParam}"]`);
+						if (personaElement) {
+							personaElement.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+							return;
+						}
+					}
 					messageElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
 				}
 			}, 200);
@@ -639,12 +726,15 @@ let branchSyncTimeout: ReturnType<typeof setTimeout> | null = null;
 	preprompt={data.preprompt}
 	personaId={(data as any).personaId}
 	branchState={activeBranch}
+	metacognitiveConfig={data.metacognitiveConfig}
+	metacognitiveState={(data as any).metacognitiveState}
 	bind:files
 	onmessage={onMessage}
 	onretry={onRetry}
 	oncontinue={onContinue}
 	onshowAlternateMsg={onShowAlternateMsg}
 	onbranch={onBranch}
+	onmetacognitivebranch={onMetacognitiveBranch}
 	onstop={async () => {
 		await fetch(`${base}/conversation/${page.params.id}/stop-generating`, {
 			method: "POST",

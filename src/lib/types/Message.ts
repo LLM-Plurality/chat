@@ -2,6 +2,19 @@ import type { MessageUpdate } from "./MessageUpdate";
 import type { Timestamps } from "./Timestamps";
 import type { v4 } from "uuid";
 
+export type MetacognitiveEventType = "comprehension" | "perspective";
+
+export type MetacognitiveEvent = {
+	type: MetacognitiveEventType;
+	promptText: string;
+	triggerFrequency: number;
+	timestamp: Date;
+	suggestedPersonaId?: string;
+	suggestedPersonaName?: string;
+	accepted: boolean;
+	linkedMessageId?: string;
+};
+
 export type PersonaResponse = {
 	personaId: string;
 	personaName: string;
@@ -57,6 +70,9 @@ export type Message = Partial<Timestamps> & {
 		messageId: Message["id"];
 		personaId: string;
 	};
+
+	// Metacognitive prompt events
+	metacognitiveEvents?: MetacognitiveEvent[];
 
 	// needed for conversation trees
 	ancestors?: Message["id"][];

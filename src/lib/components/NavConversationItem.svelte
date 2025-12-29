@@ -7,12 +7,15 @@
 	import CarbonTrashCan from "~icons/carbon/trash-can";
 	import CarbonClose from "~icons/carbon/close";
 	import CarbonEdit from "~icons/carbon/edit";
+	import CarbonChevronDown from "~icons/carbon/chevron-down";
+	import CarbonChevronRight from "~icons/carbon/chevron-right";
 	import type { ConvSidebar } from "$lib/types/ConvSidebar";
-	import { type Message, MessageRole } from "$lib/types/Message";
+	import { MessageRole } from "$lib/types/Message";
 
 	import EditConversationModal from "$lib/components/EditConversationModal.svelte";
 	import ConversationTreeGraph from "$lib/components/ConversationTreeGraph.svelte";
 	import { conversationTree } from "$lib/stores/conversationTree";
+	import { treeVisibility } from "$lib/stores/treeVisibility";
 	import type { TreeLayoutNode } from "$lib/utils/tree/layout";
 	import { buildTreeWithPositions } from "$lib/utils/tree/layout";
 	import { onDestroy } from "svelte";
@@ -34,6 +37,16 @@
 		conv.id === page.params.id && $conversationTree.conversationId === conv.id
 	);
 
+	// Initialize visibility for active conversation if not set
+	$effect(() => {
+		if (isActiveWithTree && $treeVisibility[conv.id.toString()] === undefined) {
+			// Default to visible for active conversation
+			treeVisibility.setVisible(conv.id.toString(), true);
+		}
+	});
+
+	let isVisible = $derived($treeVisibility[conv.id.toString()] ?? false);
+
 	let treeData = $state<{ nodes: TreeLayoutNode[]; width: number; height: number }>({ 
 		nodes: [], 
 		width: 0, 
@@ -46,7 +59,7 @@
 	// Only update after messages are complete (have content)
 	// DEBOUNCED to prevent layout thrashing during streaming
 	$effect(() => {
-		if (isActiveWithTree && $conversationTree.messages.length > 0) {
+		if (isActiveWithTree && isVisible && $conversationTree.messages.length > 0) {
 			clearTimeout(treeUpdateTimeout);
 			treeUpdateTimeout = setTimeout(() => {
 				// Filter to only messages with content (streaming complete)
@@ -83,8 +96,10 @@
 			}, 300); // 300ms debounce
 		} else {
 			treeData = { nodes: [], width: 0, height: 0 };
-			// Reset to default width
-			document.documentElement.style.setProperty('--sidebar-width', '290px');
+			// Reset to default width if this was the active conversation
+			if (isActiveWithTree) {
+				document.documentElement.style.setProperty('--sidebar-width', '290px');
+			}
 		}
 	});
 
@@ -92,11 +107,13 @@
 		if (treeUpdateTimeout) clearTimeout(treeUpdateTimeout);
 	});
 
-	function handleTreeNodeClick(messageId: string) {
+	function handleTreeNodeClick(messageId: string, personaId?: string) {
 		const clickedMessage = $conversationTree.messages.find(m => m.id === messageId);
+		const personaParam = personaId ? `&personaId=${personaId}` : '';
+		
 		if (!clickedMessage) {
 			console.error('Clicked message not found:', messageId);
-			goto(`${base}/conversation/${conv.id}?msgId=${messageId}&scrollTo=true`);
+			goto(`${base}/conversation/${conv.id}?msgId=${messageId}&scrollTo=true${personaParam}`);
 			return;
 		}
 		
@@ -107,12 +124,12 @@
 			
 			if (currentActivePath.has(messageId)) {
 				// Message is in active branch; preserve state
-				goto(`${base}/conversation/${conv.id}?msgId=${messageId}&scrollTo=true&keepBranch=true`);
+				goto(`${base}/conversation/${conv.id}?msgId=${messageId}&scrollTo=true&keepBranch=true${personaParam}`);
 				return;
 			}
 		}
 		
-		goto(`${base}/conversation/${conv.id}?msgId=${messageId}&scrollTo=true`);
+		goto(`${base}/conversation/${conv.id}?msgId=${messageId}&scrollTo=true${personaParam}`);
 	}
 </script>
 
@@ -121,6 +138,13 @@
 	data-sveltekit-noscroll
 	onmouseleave={() => {
 		confirmDelete = false;
+	}}
+	onclick={(e) => {
+		// If clicking the active conversation, ensure tree is visible
+		if (isActiveWithTree && !isVisible) {
+			treeVisibility.setVisible(conv.id.toString(), true);
+		}
+		// Navigation happens automatically via href
 	}}
 	href="{base}/conversation/{conv.id}"
 	class="group flex h-[2.15rem] flex-none items-center gap-1.5 rounded-lg pl-2.5 pr-2 text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 max-sm:h-10
@@ -163,6 +187,30 @@
 				/>
 			</button>
 		{:else}
+			<button
+				type="button"
+				class="flex h-5 w-5 items-center justify-center rounded md:hidden md:group-hover:flex"
+				title={isVisible ? "Hide tree" : "Show tree"}
+				onclick={(e) => {
+					e.preventDefault();
+					e.stopPropagation();
+					if (isActiveWithTree) {
+						// Only toggle locally if it's the active conversation
+						treeVisibility.toggle(conv.id.toString());
+					} else {
+						// If inactive, navigate to it (Option A)
+						// This will naturally trigger the visibility effect to set it to true
+						goto(`${base}/conversation/${conv.id}`);
+					}
+				}}
+			>
+				{#if isActiveWithTree && isVisible}
+					<CarbonChevronDown class="text-xs text-gray-400 hover:text-gray-500 dark:hover:text-gray-300" />
+				{:else}
+					<CarbonChevronRight class="text-xs text-gray-400 hover:text-gray-500 dark:hover:text-gray-300" />
+				{/if}
+			</button>
+
 			<button
 				type="button"
 				class="flex h-5 w-5 items-center justify-center rounded md:hidden md:group-hover:flex"

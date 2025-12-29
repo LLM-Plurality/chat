@@ -268,9 +268,9 @@ export async function POST({ request, locals, params, getClientAddress }) {
 					files: uploadedFiles,
 					createdAt: new Date(),
 					updatedAt: new Date(),
-					// Copy branchedFrom if it exists
-					...(messageToRetry.branchedFrom && {
-						branchedFrom: messageToRetry.branchedFrom,
+					// Use branchedFrom from request if exists, otherwise copy from original
+					...((branchedFrom || messageToRetry.branchedFrom) && {
+						branchedFrom: branchedFrom ?? messageToRetry.branchedFrom,
 					}),
 				},
 				messageId
@@ -294,6 +294,23 @@ export async function POST({ request, locals, params, getClientAddress }) {
 				newUserMessageId
 			);
 			messagesForPrompt = buildSubtree(conv, newUserMessageId);
+		} else if (messageToRetry.from === "user" && !newPrompt) {
+			// Branching from existing user message without editing
+			messageToWriteToId = addChildren(
+				conv,
+				{
+					from: "assistant",
+					content: "",
+					createdAt: new Date(),
+					updatedAt: new Date(),
+					// Use branchedFrom from request if exists, otherwise copy from original
+					...((branchedFrom || messageToRetry.branchedFrom) && {
+						branchedFrom: branchedFrom ?? messageToRetry.branchedFrom,
+					}),
+				},
+				messageId
+			);
+			messagesForPrompt = buildSubtree(conv, messageId);
 		} else if (messageToRetry.from === "assistant") {
 			// Regenerating assistant response: create new sibling response
 			messageToWriteToId = addSibling(
@@ -303,9 +320,9 @@ export async function POST({ request, locals, params, getClientAddress }) {
 					content: "",
 					createdAt: new Date(),
 					updatedAt: new Date(),
-					// Copy branchedFrom if it exists
-					...(messageToRetry.branchedFrom && {
-						branchedFrom: messageToRetry.branchedFrom,
+					// Use branchedFrom from request if exists, otherwise copy from original
+					...((branchedFrom || messageToRetry.branchedFrom) && {
+						branchedFrom: branchedFrom ?? messageToRetry.branchedFrom,
 					}),
 				},
 				messageId
@@ -318,6 +335,17 @@ export async function POST({ request, locals, params, getClientAddress }) {
 	} else {
 		// just a normal linear conversation, so we add the user message
 		// and the blank assistant message back to back
+
+		if (conv.messages.length > 0) {
+			if (!messageId) {
+				error(400, "Parent message ID is required");
+			}
+			const parent = conv.messages.find((m) => m.id === messageId);
+			if (!parent) {
+				error(404, "Parent message not found");
+			}
+		}
+
 		const newUserMessageId = addChildren(
 			conv,
 			{
@@ -387,6 +415,7 @@ export async function POST({ request, locals, params, getClientAddress }) {
 			const startedEvent = {
 				type: MessageUpdateType.Status,
 				status: MessageUpdateStatus.Started,
+				messageId: messageToWriteToId,
 			};
 			try {
 				controller.enqueue(JSON.stringify(startedEvent) + "\n");
