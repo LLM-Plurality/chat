@@ -1,5 +1,7 @@
 <script lang="ts">
-	import type { Message, MessageFile } from "$lib/types/Message";
+	import type { Message, MessageFile, MetacognitiveEvent, MetacognitiveEventType } from "$lib/types/Message";
+	import type { MetacognitiveConfig, MetacognitivePromptData } from "$lib/types/Metacognitive";
+	import { determineMetacognitivePrompt } from "$lib/utils/metacognitiveLogic";
 	import { onDestroy, tick } from "svelte";
 
 	import IconOmni from "$lib/components/icons/IconOmni.svelte";
@@ -11,6 +13,7 @@
 	import StopGeneratingBtn from "../StopGeneratingBtn.svelte";
 	import type { Model } from "$lib/types/Model";
 	import { page } from "$app/state";
+	import { goto } from "$app/navigation";
 	import FileDropzone from "./FileDropzone.svelte";
 	import RetryBtn from "../RetryBtn.svelte";
 	import file2base64 from "$lib/utils/file2base64";
@@ -24,6 +27,7 @@
 	import ChatIntroduction from "./ChatIntroduction.svelte";
 	import UploadedFile from "./UploadedFile.svelte";
 	import { useSettingsStore } from "$lib/stores/settings";
+	import { useMetacognitiveEngine } from "$lib/hooks/useMetacognitiveEngine.svelte";
 	import ModelSwitch from "./ModelSwitch.svelte";
 	import { routerExamples } from "$lib/constants/routerExamples";
 	import type { RouterFollowUp, RouterExample } from "$lib/constants/routerExamples";
@@ -35,6 +39,7 @@
 	import { loginModalOpen } from "$lib/stores/loginModal";
 
 	import { isVirtualKeyboard } from "$lib/utils/isVirtualKeyboard";
+	import superjson from "superjson";
 
 	interface Props {
 		messages?: Message[];
@@ -53,12 +58,18 @@
 			personaName: string;
 		} | null;
 		files?: File[];
+		metacognitiveConfig?: MetacognitiveConfig;
+		metacognitiveState?: {
+			targetFrequency?: number;
+			lastPromptedAtMessageId?: string | null;
+		};
 		onmessage?: (content: string) => void;
 		onstop?: () => void;
 		onretry?: (payload: { id: Message["id"]; content?: string; personaId?: string }) => void;
 		oncontinue?: (payload: { id: Message["id"] }) => void;
 		onshowAlternateMsg?: (payload: { id: Message["id"] }) => void;
 		onbranch?: (messageId: string, personaId: string) => void;
+		onmetacognitivebranch?: (messageId: string, personaId: string, promptData: MetacognitivePromptData) => void;
 	}
 
 	let {
@@ -74,12 +85,15 @@
 		lockedPersonaId,
 		branchState,
 		files = $bindable([]),
+		metacognitiveConfig,
+		metacognitiveState,
 		onmessage,
 		onstop,
 		onretry,
 		oncontinue,
 		onshowAlternateMsg,
 		onbranch,
+		onmetacognitivebranch,
 	}: Props = $props();
 
 	let isReadOnly = $derived(!models.some((model) => model.id === currentModel.id));
@@ -110,6 +124,18 @@
 		});
 		return branchPoints;
 	});
+
+	const metacognitiveEngine = useMetacognitiveEngine(() => ({
+		messages,
+		loading,
+		pending,
+		metacognitiveConfig,
+		metacognitiveState,
+		userSettings: $userSettings,
+		onmetacognitivebranch
+	}));
+
+	let activeMetacognitivePrompt = $derived(metacognitiveEngine.activeMetacognitivePrompt);
 
 	let message: string = $state("");
 	let shareModalOpen = $state(false);
@@ -179,7 +205,9 @@
 	let lastMessage = $derived(browser && (messages.at(-1) as Message));
 	let scrollSignal = $derived.by(() => {
 		const last = messages.at(-1) as Message | undefined;
-		return last ? `${last.id}:${last.content.length}:${messages.length}` : `${messages.length}:0`;
+		return last
+			? `${last.id}:${last.content.length}:${messages.length}:${loading}:${activeMetacognitivePrompt?.messageId ?? ""}`
+			: `${messages.length}:0:${loading}:${activeMetacognitivePrompt?.messageId ?? ""}`;
 	});
 	let lastIsError = $derived(
 		lastMessage &&
@@ -385,7 +413,7 @@
 
 			{#if messages.length > 0}
 				<div class="flex h-max flex-col gap-8 pb-52">
-					{#each messages as message, idx (message.id)}
+					{#each messages as message, idx (idx)}
 					<ChatMessage
 						{loading}
 						{message}
@@ -398,10 +426,12 @@
 						personaStance={message.from === "assistant" && !message.personaResponses ? persona?.stance : undefined}
 						{branchState}
 						branchPersonas={branchPointInfo.get(message.id) ?? []}
+						metacognitivePrompt={idx === messages.length - 1 && activeMetacognitivePrompt?.messageId === message.id ? activeMetacognitivePrompt : null}
 						bind:editMsdgId
 						onretry={(payload) => onretry?.(payload)}
 						onshowAlternateMsg={(payload) => onshowAlternateMsg?.(payload)}
 						onbranch={(messageId, personaId) => onbranch?.(messageId, personaId)}
+						onmetacognitiveaction={() => metacognitiveEngine.handleMetacognitiveAction(message.id)}
 					/>
 					{/each}
 					{#if isReadOnly}

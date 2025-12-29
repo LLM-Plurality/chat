@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Message } from "$lib/types/Message";
+	import type { Message, MetacognitiveEventType } from "$lib/types/Message";
 	import { tick } from "svelte";
 
 	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
@@ -29,6 +29,15 @@
 	import { base } from "$app/paths";
 	import type { PersonaResponse } from "$lib/types/Message";
 	import { onDestroy } from "svelte";
+	import MetacognitivePrompt from "./MetacognitivePrompt.svelte";
+
+	type MetacognitivePromptData = {
+		type: MetacognitiveEventType;
+		promptText: string;
+		triggerFrequency: number;
+		suggestedPersonaId?: string;
+		suggestedPersonaName?: string;
+	} | null;
 
 	interface Props {
 		message: Message;
@@ -48,9 +57,11 @@
 			personaName: string;
 		} | null;
 		branchPersonas?: string[];
+		metacognitivePrompt?: MetacognitivePromptData;
 		onretry?: (payload: { id: Message["id"]; content?: string; personaId?: string }) => void;
 		onshowAlternateMsg?: (payload: { id: Message["id"] }) => void;
 		onbranch?: (messageId: string, personaId: string) => void;
+		onmetacognitiveaction?: () => void;
 		messageBranches?: any[]; // Branches originating from this message
 		onopenbranchmodal?: (messageId: string, personaId: string, branches: any[]) => void;
 	}
@@ -69,9 +80,11 @@
 		personaOccupation,
 		personaStance,
 		branchState,
+		metacognitivePrompt,
 		onretry,
 		onshowAlternateMsg,
 		onbranch,
+		onmetacognitiveaction,
 		messageBranches = [],
 		onopenbranchmodal,
 	}: Props = $props();
@@ -142,6 +155,31 @@ let hasClientThink = $derived(!hasServerReasoning && hasThinkSegments(message.co
 			updates: message.updates,
 			routerMetadata: message.routerMetadata,
 		}];
+	});
+
+	// Use local or stored prompt
+	let storedMetacognitiveEvent = $derived(
+		message.metacognitiveEvents && message.metacognitiveEvents.length > 0 
+			? message.metacognitiveEvents[message.metacognitiveEvents.length - 1] 
+			: null
+	);
+
+	let isMetacognitiveEventAccepted = $derived(storedMetacognitiveEvent?.accepted ?? false);
+	
+	let activeMetacognitivePrompt = $derived.by(() => {
+		if (metacognitivePrompt) return metacognitivePrompt;
+		
+		if (storedMetacognitiveEvent) {
+			return {
+				type: storedMetacognitiveEvent.type,
+				promptText: storedMetacognitiveEvent.promptText,
+				triggerFrequency: storedMetacognitiveEvent.triggerFrequency,
+				suggestedPersonaId: storedMetacognitiveEvent.suggestedPersonaId,
+				suggestedPersonaName: storedMetacognitiveEvent.suggestedPersonaName,
+			} as MetacognitivePromptData;
+		}
+		
+		return null;
 	});
 
 	// Multiple cards need horizontal scroll layout
@@ -217,12 +255,12 @@ let hasClientThink = $derived(!hasServerReasoning && hasThinkSegments(message.co
 			
 			// If expanding, scroll to show the bottom of the content
 			if (!isCurrentlyExpanded) {
-				setTimeout(() => {
+				tick().then(() => {
 					const element = contentElements[personaId];
 					if (element) {
 						element.scrollIntoView({ behavior: 'smooth', block: 'end' });
 					}
-				}, 50);
+				});
 			}
 		}
 	}
@@ -307,26 +345,27 @@ let hasClientThink = $derived(!hasServerReasoning && hasThinkSegments(message.co
 </script>
 
 {#if message.from === "assistant"}
-	<div
-		bind:offsetWidth={messageWidth}
-		class="group relative -mb-4 flex max-w-full items-start justify-start gap-4 pb-4 leading-relaxed max-sm:mb-1 {message.routerMetadata &&
-		messageInfoWidth >= messageWidth
-			? 'mb-1'
-			: ''}"
-		class:w-full={isPersonaMode}
-		class:w-fit={!isPersonaMode}
-		data-message-id={message.id}
-		data-message-role="assistant"
-		role="presentation"
-		onclick={() => (isTapped = !isTapped)}
-		onkeydown={() => (isTapped = !isTapped)}
-	>
-	<MessageAvatar
-		classNames="mt-5 size-3.5 flex-none select-none rounded-full shadow-lg max-sm:hidden"
-		animating={isLast && loading}
-	/>
-	
-	<div class="flex-1 min-w-0 relative">
+	<div class="w-full">
+		<div
+			bind:offsetWidth={messageWidth}
+			class="group relative -mb-4 flex max-w-full items-start justify-start gap-4 pb-4 leading-relaxed max-sm:mb-1 {message.routerMetadata &&
+			messageInfoWidth >= messageWidth
+				? 'mb-1'
+				: ''}"
+			class:w-full={isPersonaMode}
+			class:w-fit={!isPersonaMode}
+			data-message-id={message.id}
+			data-message-role="assistant"
+			role="presentation"
+			onclick={() => (isTapped = !isTapped)}
+			onkeydown={() => (isTapped = !isTapped)}
+		>
+		<MessageAvatar
+			classNames="mt-5 size-3.5 flex-none select-none rounded-full shadow-lg max-sm:hidden"
+			animating={isLast && loading}
+		/>
+		
+		<div class="flex-1 min-w-0 relative">
 		<!-- Focused mode carousel navigation arrows -->
 		{#if focusedPersonaId && hasMultipleCards}
 			{@const currentIndex = responses.findIndex(r => r.personaId === focusedPersonaId)}
@@ -355,7 +394,7 @@ let hasClientThink = $derived(!hasServerReasoning && hasThinkSegments(message.co
 		{/if}
 		
 		<!-- Container: horizontal scroll for multiple cards (unless focused), single card otherwise -->
-		<div class="{hasMultipleCards && !focusedPersonaId ? 'persona-scroll-container flex gap-3 overflow-x-auto pb-2 px-12' : ''}">
+		<div class="{hasMultipleCards && !focusedPersonaId ? 'persona-scroll-container flex gap-3 overflow-x-auto pb-2' : ''}">
 			{#if isPersonaMode && responses.length === 0 && isLast && loading}
 				<!-- Loading state: waiting for personas to start responding -->
 					<IconLoading classNames="loading inline ml-2" />
@@ -372,6 +411,7 @@ let hasClientThink = $derived(!hasServerReasoning && hasThinkSegments(message.co
 					<div 
 						class="rounded-2xl border border-gray-100 bg-gradient-to-br from-gray-50 px-5 py-4 text-gray-600 dark:border-gray-800 dark:from-gray-800/80 dark:text-gray-300 {hasMultipleCards && !focusedPersonaId ? 'persona-card flex-shrink-0' : ''}"
 						style={hasMultipleCards && !focusedPersonaId ? `min-width: 320px; max-width: ${isExpanded ? '600px' : '420px'};` : ''}
+						data-persona-id={response.personaId}
 					>
 					<!-- Persona Header: persona name + action buttons -->
 					<div class="mb-3 flex items-center justify-between border-b border-gray-200 pb-2 dark:border-gray-700">
@@ -392,47 +432,50 @@ let hasClientThink = $derived(!hasServerReasoning && hasThinkSegments(message.co
 						{/if}
 						
 						<div class="flex items-center gap-1">
-							{#if hasMultipleCards}
-								<button
-									type="button"
-									class="!rounded-md !p-1.5 !text-gray-500 hover:!bg-gray-100 dark:!text-gray-400 dark:hover:!bg-gray-800 transition-colors"
-									onclick={(e) => {
-										e.stopPropagation();
-										focusedPersonaId === response.personaId ? toggleExpanded(response.personaId) : setFocus(response.personaId);
-									}}
-									aria-label={focusedPersonaId === response.personaId ? "Exit focus mode" : "Focus this persona"}
-									title={focusedPersonaId === response.personaId ? "Show all cards" : "Focus on this card"}
-								>
-									{#if focusedPersonaId === response.personaId}
-										<CarbonMinimize class="text-base" />
-									{:else}
-										<CarbonMaximize class="text-base" />
-									{/if}
-								</button>
-							{/if}
-
-							{#if !loading && onretry}
-								<button
-									type="button"
-									class="!rounded-md !p-1.5 !text-gray-500 hover:!bg-gray-100 dark:!text-gray-400 dark:hover:!bg-gray-800 transition-colors"
-									onclick={(e) => {
-										e.stopPropagation();
-										onretry?.({ id: message.id, personaId: response.personaId });
-									}}
-									aria-label="Regenerate {displayName}'s response"
-									title="Regenerate this response"
-								>
-									<CarbonRotate360 class="text-base" />
-								</button>
-							{/if}
-						{#if !loading && onbranch}
-							{@const isBranchClicked = branchClickedPersonaId === response.personaId}
+						{#if hasMultipleCards}
 							<button
 								type="button"
 								class="!rounded-md !p-1.5 !text-gray-500 hover:!bg-gray-100 dark:!text-gray-400 dark:hover:!bg-gray-800 transition-colors"
 								onclick={(e) => {
 									e.stopPropagation();
-									
+									focusedPersonaId === response.personaId ? toggleExpanded(response.personaId) : setFocus(response.personaId);
+								}}
+								aria-label={focusedPersonaId === response.personaId ? "Exit focus mode" : "Focus this persona"}
+								title={focusedPersonaId === response.personaId ? "Show all cards" : "Focus on this card"}
+							>
+								{#if focusedPersonaId === response.personaId}
+									<CarbonMinimize class="text-base" />
+								{:else}
+									<CarbonMaximize class="text-base" />
+								{/if}
+							</button>
+						{/if}
+
+						{#if onretry}
+							<button
+								type="button"
+								class="!rounded-md !p-1.5 !text-gray-500 hover:!bg-gray-100 dark:!text-gray-400 dark:hover:!bg-gray-800 transition-colors {loading ? 'opacity-50 cursor-not-allowed' : ''}"
+								onclick={(e) => {
+									e.stopPropagation();
+									if (!loading) {
+										onretry?.({ id: message.id, personaId: response.personaId });
+									}
+								}}
+								disabled={loading}
+								aria-label="Regenerate {displayName}'s response"
+								title={loading ? "Please wait for current response to complete" : "Regenerate this response"}
+							>
+								<CarbonRotate360 class="text-base" />
+							</button>
+						{/if}
+					{#if onbranch}
+						{@const isBranchClicked = branchClickedPersonaId === response.personaId}
+						<button
+							type="button"
+							class="!rounded-md !p-1.5 !text-gray-500 hover:!bg-gray-100 dark:!text-gray-400 dark:hover:!bg-gray-800 transition-colors {loading ? 'opacity-50 cursor-not-allowed' : ''}"
+							onclick={(e) => {
+								e.stopPropagation();
+								if (!loading) {
 									// Trigger animation
 									branchClickedPersonaId = response.personaId;
 									if (branchClickTimeout) {
@@ -443,21 +486,22 @@ let hasClientThink = $derived(!hasServerReasoning && hasThinkSegments(message.co
 									}, 500);
 									
 									onbranch?.(message.id, response.personaId);
-								}}
-								aria-label="Branch conversation with {displayName}"
-								title="Start private conversation with {displayName}"
-							>
-								<div class="relative transition-transform duration-200 {isBranchClicked ? 'scale-125' : 'scale-100'}">
-									<CarbonBranch class="text-base" />
-								</div>
-							</button>
-						{/if}
-						{#if !loading}
-						<CopyToClipBoardBtn
-							classNames="!rounded-md !p-1.5 !text-gray-500 hover:!bg-gray-100 dark:!text-gray-400 dark:hover:!bg-gray-800"
-							value={response.content}
-						/>
-						{/if}
+								}
+							}}
+							disabled={loading}
+							aria-label="Branch conversation with {displayName}"
+							title={loading ? "Please wait for current response to complete" : "Start private conversation with {displayName}"}
+						>
+							<div class="relative transition-transform duration-200 {isBranchClicked ? 'scale-125' : 'scale-100'}">
+								<CarbonBranch class="text-base" />
+							</div>
+						</button>
+					{/if}
+					<CopyToClipBoardBtn
+						classNames="!rounded-md !p-1.5 !text-gray-500 hover:!bg-gray-100 dark:!text-gray-400 dark:hover:!bg-gray-800 {loading ? 'opacity-50 cursor-not-allowed' : ''}"
+						value={response.content}
+						disabled={loading}
+					/>
 						</div>
 					</div>
 
@@ -518,17 +562,19 @@ let hasClientThink = $derived(!hasServerReasoning && hasThinkSegments(message.co
 		</div>
 
 		<!-- Branch button for legacy mode (outside card border) -->
-		{#if !isPersonaMode && (!isLast || !loading) && onbranch && personaName}
+		{#if !isPersonaMode && onbranch && personaName}
 			{@const branchCount = personaBranches.length}
 			{@const hasExistingBranches = branchCount > 0}
+			{@const isDisabled = isLast && loading}
 			
 			<div class="mt-1.5 flex items-center justify-end gap-1 px-2">
 				<button
 					type="button"
-					class="flex items-center gap-1 rounded-md px-2 py-1.5 text-sm text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700/50 {isBranching ? 'animate-pulse' : ''}"
-					onclick={handleBranchButtonClick}
+					class="flex items-center gap-1 rounded-md px-2 py-1.5 text-sm text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700/50 {isBranching ? 'animate-pulse' : ''} {isDisabled ? 'opacity-50 cursor-not-allowed' : ''}"
+					onclick={() => !isDisabled && handleBranchButtonClick()}
+					disabled={isDisabled}
 					aria-label={hasExistingBranches ? "Branch options" : "Branch from this response"}
-					title={hasExistingBranches ? "View or create branch" : "Branch from this response"}
+					title={isDisabled ? "Please wait for current response to complete" : (hasExistingBranches ? "View or create branch" : "Branch from this response")}
 				>
 					<CarbonBranch class="text-xs" />
 					{#if hasExistingBranches}
@@ -537,8 +583,6 @@ let hasClientThink = $derived(!hasServerReasoning && hasThinkSegments(message.co
 				</button>
 			</div>
 		{/if}
-	</div>
-
 		{#if message.routerMetadata && (!isLast || !loading)}
 			<div
 				class="absolute -bottom-3.5 {message.routerMetadata && messageInfoWidth > messageWidth
@@ -576,6 +620,24 @@ let hasClientThink = $derived(!hasServerReasoning && hasThinkSegments(message.co
 				{/if}
 			</div>
 		{/if}
+		</div>
+		</div>
+
+	{#if activeMetacognitivePrompt}
+		<!-- Render below the response block -->
+		<!-- Only hide during initial loading (no stored event yet) -->
+		{#if !isLast || !loading || storedMetacognitiveEvent}
+			<div class="max-sm:pl-0 sm:pl-[1.875rem]">
+				<MetacognitivePrompt
+					promptType={activeMetacognitivePrompt.type}
+					promptText={activeMetacognitivePrompt.promptText}
+					suggestedPersonaName={activeMetacognitivePrompt.suggestedPersonaName}
+					onAction={() => onmetacognitiveaction?.()}
+					isClicked={isMetacognitiveEventAccepted}
+				/>
+			</div>
+		{/if}
+	{/if}
 	</div>
 {/if}
 {#if message.from === "user"}
@@ -690,21 +752,6 @@ let hasClientThink = $derived(!hasServerReasoning && hasThinkSegments(message.co
 	/* Fade effect for horizontal scroll container */
 	.persona-scroll-container {
 		position: relative;
-		/* Add gradient mask to fade out cards at edges */
-		mask-image: linear-gradient(
-			to right,
-			transparent 0%,
-			black 40px,
-			black calc(100% - 40px),
-			transparent 100%
-		);
-		-webkit-mask-image: linear-gradient(
-			to right,
-			transparent 0%,
-			black 40px,
-			black calc(100% - 40px),
-			transparent 100%
-		);
 	}
 
 	.persona-scroll-container {
@@ -722,7 +769,7 @@ let hasClientThink = $derived(!hasServerReasoning && hasThinkSegments(message.co
 
 	.persona-scroll-container::-webkit-scrollbar-track {
 		background: transparent;
-		margin: 0 48px; /* Match the px-12 padding (3rem = 48px) */
+		margin: 0;
 	}
 
 	.persona-scroll-container::-webkit-scrollbar-thumb {
