@@ -24,5 +24,11 @@ export interface Conversation extends Timestamps {
 	personaId?: string;
 	assistantId?: Assistant["_id"];
 
+	metacognitiveState?: {
+		targetFrequency: number;
+		lastPromptedAtMessageId?: Message["id"] | null;
+		updatedAt?: Date;
+	};
+
 	userAgent?: string;
 }

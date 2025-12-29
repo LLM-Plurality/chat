@@ -6,6 +6,9 @@ import { authCondition } from "$lib/server/auth";
 import { validModelIdSchema } from "$lib/server/models";
 import { convertLegacyConversation } from "$lib/utils/tree/convertLegacyConversation";
 import type { Conversation } from "$lib/types/Conversation";
+import type { MetacognitiveEvent } from "$lib/types/Message";
+import { logger } from "$lib/server/logger";
+import { getMetacognitiveConfig, selectRandomFrequency } from "$lib/server/metacognitiveConfig";
 
 import { CONV_NUM_PER_PAGE } from "$lib/constants/pagination";
 
@@ -75,6 +78,7 @@ export const conversationGroup = new Elysia().use(authPlugin).group("/conversati
 						.derive(async ({ locals, params }) => {
 							let conversation;
 							let shared = false;
+							const metacognitiveConfig = getMetacognitiveConfig();
 
 							// if the conver
 							if (params.id.length === 7) {
@@ -113,6 +117,23 @@ export const conversationGroup = new Elysia().use(authPlugin).group("/conversati
 
 									throw new Error("Conversation not found.");
 								}
+
+								// Initialize metacognitiveState server-side so targetFrequency is consistent across refresh/devices.
+								if (metacognitiveConfig.enabled) {
+									const existingTarget = conversation.metacognitiveState?.targetFrequency;
+									if (!existingTarget) {
+										const metacognitiveState = {
+											targetFrequency: selectRandomFrequency(),
+											lastPromptedAtMessageId: null,
+											updatedAt: new Date(),
+										};
+										await collections.conversations.updateOne(
+											{ _id: new ObjectId(params.id), ...authCondition(locals) },
+											{ $set: { metacognitiveState } }
+										);
+										conversation.metacognitiveState = metacognitiveState;
+									}
+								}
 							}
 
 							const convertedConv = {
@@ -134,6 +155,7 @@ export const conversationGroup = new Elysia().use(authPlugin).group("/conversati
 								updatedAt: conversation.updatedAt,
 								modelId: conversation.model,
 								shared: conversation.shared,
+								metacognitiveState: (conversation as Conversation).metacognitiveState,
 							};
 						})
 						.post("", () => {
@@ -249,6 +271,96 @@ export const conversationGroup = new Elysia().use(authPlugin).group("/conversati
 								params: t.Object({
 									id: t.String(),
 									messageId: t.String(),
+								}),
+							}
+						)
+						.post(
+							"/message/:messageId/metacognitive-event",
+							async ({ locals, params, body, conversation }) => {
+								// Find the message in the conversation
+								const messageIndex = conversation.messages.findIndex(
+									(m) => m.id === params.messageId
+								);
+								if (messageIndex === -1) {
+									throw new Error("Message not found");
+								}
+
+								// Create the metacognitive event
+								const event: MetacognitiveEvent = {
+									type: body.type as "comprehension" | "perspective",
+									promptText: body.promptText,
+									triggerFrequency: body.triggerFrequency,
+									timestamp: new Date(),
+									suggestedPersonaId: body.suggestedPersonaId,
+									suggestedPersonaName: body.suggestedPersonaName,
+									accepted: body.accepted,
+								};
+
+								// Log the event for research tracking
+								logger.info(
+									{
+										conversationId: params.id,
+										messageId: params.messageId,
+										eventType: event.type,
+										triggerFrequency: event.triggerFrequency,
+										accepted: event.accepted,
+										suggestedPersonaId: event.suggestedPersonaId,
+									},
+									"Metacognitive prompt event"
+								);
+
+								// Update the message with the new event
+								const updatePath = `messages.${messageIndex}.metacognitiveEvents`;
+								// eslint-disable-next-line @typescript-eslint/no-explicit-any
+								const updateDoc: Record<string, any> = {
+									$push: { [updatePath]: event },
+								};
+
+								// If this is a shown event, persist metacognitive state so
+								// targetFrequency stays consistent across refresh/devices and the counter can reset.
+								let nextTargetFrequency: number | undefined;
+								if (body.accepted === false) {
+									const metacognitiveConfig = getMetacognitiveConfig();
+									if (metacognitiveConfig.enabled) {
+										nextTargetFrequency = selectRandomFrequency();
+										updateDoc.$set = {
+											"metacognitiveState.lastPromptedAtMessageId": params.messageId,
+											"metacognitiveState.targetFrequency": nextTargetFrequency,
+											"metacognitiveState.updatedAt": new Date(),
+										};
+									}
+								}
+
+								const res = await collections.conversations.updateOne(
+									{
+										_id: new ObjectId(params.id),
+										...authCondition(locals),
+									},
+									updateDoc
+								);
+
+								if (res.modifiedCount === 0) {
+									throw new Error("Failed to log metacognitive event");
+								}
+
+								return {
+									success: true,
+									event,
+									nextTargetFrequency,
+								};
+							},
+							{
+								params: t.Object({
+									id: t.String(),
+									messageId: t.String(),
+								}),
+								body: t.Object({
+									type: t.Union([t.Literal("comprehension"), t.Literal("perspective")]),
+									promptText: t.String(),
+									triggerFrequency: t.Number(),
+									suggestedPersonaId: t.Optional(t.String()),
+									suggestedPersonaName: t.Optional(t.String()),
+									accepted: t.Boolean(),
 								}),
 							}
 						);

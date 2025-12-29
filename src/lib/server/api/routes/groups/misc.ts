@@ -9,6 +9,7 @@ import yazl from "yazl";
 import { downloadFile } from "$lib/server/files/downloadFile";
 import mimeTypes from "mime-types";
 import { logger } from "$lib/server/logger";
+import { getMetacognitiveConfig } from "$lib/server/metacognitiveConfig";
 
 export interface FeatureFlags {
 	enableAssistants: boolean;
@@ -23,6 +24,15 @@ export type ApiReturnType = Awaited<ReturnType<typeof Client.prototype.view_api>
 export const misc = new Elysia()
 	.use(authPlugin)
 	.get("/public-config", async () => config.getPublicConfig())
+	.get("/metacognitive-config", async () => {
+		const metacogConfig = getMetacognitiveConfig();
+		return {
+			frequencies: metacogConfig.frequencies,
+			comprehensionPrompts: metacogConfig.comprehensionPrompts,
+			perspectivePrompts: metacogConfig.perspectivePrompts,
+			enabled: metacogConfig.enabled,
+		};
+	})
 	.get("/feature-flags", async ({ locals }) => {
 		let loginRequired = false;
 		const messagesBeforeLogin = config.MESSAGES_BEFORE_LOGIN
